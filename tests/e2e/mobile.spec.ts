@@ -1,10 +1,37 @@
 import { expect, test } from '@playwright/test';
 
-test.beforeEach(async ({ page }) => {
+const fullscreenPromptTest = 'prompts for fullscreen and keeps it available in settings';
+
+test.beforeEach(async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 844, height: 390 });
   await page.goto('/');
   await expect(page.locator('#start-button')).toBeEnabled();
   await expect(page.locator('#ui-root')).toHaveAttribute('data-input-mode', 'touch');
+  if (testInfo.title !== fullscreenPromptTest) {
+    await page.locator('#skip-fullscreen-button').click();
+    await expect(page.locator('#mobile-fullscreen-prompt')).not.toHaveClass(/is-visible/);
+  }
+});
+
+test(fullscreenPromptTest, async ({ page }, testInfo) => {
+  await expect(page.locator('#mobile-fullscreen-prompt')).toHaveClass(/is-visible/);
+  await expect(page.locator('#enable-fullscreen-button')).toBeEnabled();
+  await page.screenshot({ path: testInfo.outputPath('mobile-fullscreen-prompt.png') });
+
+  await page.locator('#skip-fullscreen-button').click();
+  await expect(page.locator('#mobile-fullscreen-prompt')).not.toHaveClass(/is-visible/);
+  await page.locator('#settings-button').click();
+  await expect(page.locator('#mobile-settings-screen')).toHaveClass(/is-visible/);
+  await expect(page.locator('#settings-fullscreen-button')).toBeEnabled();
+
+  await page.locator('#settings-fullscreen-button').click();
+  await expect.poll(() => page.evaluate(() => Boolean(document.fullscreenElement))).toBe(true);
+  await expect(page.locator('#mobile-settings-screen')).not.toHaveClass(/is-visible/);
+
+  await page.locator('#settings-button').click();
+  await expect(page.locator('#settings-fullscreen-button')).toHaveText('退出全屏模式');
+  await page.locator('#settings-fullscreen-button').click();
+  await expect.poll(() => page.evaluate(() => Boolean(document.fullscreenElement))).toBe(false);
 });
 
 test('adapts the title to landscape and gates portrait play', async ({ page }) => {

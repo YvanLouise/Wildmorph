@@ -1,5 +1,7 @@
-export const PLAYER_SPEED = 200;
-export const SPRINT_MULTIPLIER = 1.5;
+import { DEFAULT_GAME_CONFIG } from '../config/GameConfig';
+
+export const PLAYER_SPEED = DEFAULT_GAME_CONFIG.player.moveSpeed;
+export const SPRINT_MULTIPLIER = DEFAULT_GAME_CONFIG.player.sprintMultiplier;
 export const PLAYER_SPRINT_SPEED = PLAYER_SPEED * SPRINT_MULTIPLIER;
 
 export interface DirectionalInput {

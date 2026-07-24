@@ -1,3 +1,5 @@
+import type { GameConfig } from './config/GameConfig';
+
 export type GamePhase = 'title' | 'playing' | 'paused' | 'resetting';
 
 export type InputAction = 'move-up' | 'move-down' | 'move-left' | 'move-right' | 'pause';
@@ -96,6 +98,7 @@ export interface GameSnapshot {
 
 export interface TuyeDebugApi {
   getSnapshot(): Readonly<GameSnapshot>;
+  getConfig(): Readonly<GameConfig>;
   teleport(index: number): void;
   resetPlayer(): void;
   setZoom(zoom: number): void;

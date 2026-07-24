@@ -1,6 +1,7 @@
 import type { GamePhase, GameSnapshot } from '../game/types';
 import { ASSET_URLS } from '../game/assets/manifest';
 import { TouchControls } from './TouchControls';
+import { FullscreenController } from './FullscreenController';
 
 export interface AppUICallbacks {
   readonly onStart: () => void;
@@ -41,8 +42,11 @@ export class AppUI {
   private titleArtReady = false;
   private titleArtFailed = false;
   private readonly touchControls: TouchControls;
+  private readonly fullscreenController: FullscreenController;
 
   constructor(callbacks: AppUICallbacks) {
+    this.touchControls = new TouchControls({ onPause: callbacks.onPause });
+    this.fullscreenController = new FullscreenController();
     this.startButton.addEventListener('click', callbacks.onStart);
     this.touchPauseButton.addEventListener('click', callbacks.onPause);
     this.continueButton.addEventListener('click', callbacks.onContinue);
@@ -52,7 +56,9 @@ export class AppUI {
       this.showTitleNotice('图鉴将在后续版本开放');
     });
     this.settingsButton.addEventListener('click', () => {
-      this.showTitleNotice('设置将在后续版本开放');
+      if (!this.fullscreenController.openSettings()) {
+        this.showTitleNotice('设置将在后续版本开放');
+      }
     });
 
     this.titleArt.addEventListener('load', () => {
@@ -67,7 +73,6 @@ export class AppUI {
       this.updateStartAvailability();
     }, { once: true });
     this.titleArt.src = ASSET_URLS.titleScreen;
-    this.touchControls = new TouchControls({ onPause: callbacks.onPause });
   }
 
   setAssetsReady(): void {
@@ -82,6 +87,7 @@ export class AppUI {
     this.titleScreen.setAttribute('aria-hidden', String(phase !== 'title'));
     this.pauseScreen.setAttribute('aria-hidden', String(phase !== 'paused'));
     this.touchControls.setPhase(phase);
+    this.fullscreenController.setPhase(phase);
 
     if (phase === 'playing') {
       this.showControlsHint();

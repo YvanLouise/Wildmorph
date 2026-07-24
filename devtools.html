@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#102824" />
+    <title>蜕野 · 野外调参台</title>
+  </head>
+  <body>
+    <div id="devtools-app" class="devtools-shell">
+      <header class="topbar">
+        <div class="brand-block">
+          <span class="brand-mark" aria-hidden="true">叶</span>
+          <div>
+            <p>WILDMORPH FIELD LAB</p>
+            <h1>蜕野 · 野外调参台</h1>
+          </div>
+          <span class="local-badge">仅本地开发</span>
+        </div>
+        <div class="preset-controls">
+          <label class="preset-select-label">
+            <span>当前预设</span>
+            <select id="preset-select" aria-label="当前预设"></select>
+          </label>
+          <span id="active-preset-badge" class="active-preset-badge">项目默认值</span>
+        </div>
+        <div class="top-actions">
+          <button id="save-button" class="button button-primary" type="button">保存并激活</button>
+          <button id="save-as-button" class="button" type="button">另存为</button>
+          <button id="delete-preset-button" class="button button-danger" type="button">删除</button>
+          <button id="import-button" class="button button-icon" type="button" title="导入 JSON">导入</button>
+          <button id="export-button" class="button button-icon" type="button" title="导出 JSON">导出</button>
+          <button id="open-game-button" class="button button-game" type="button">打开 / 刷新游戏</button>
+        </div>
+      </header>
+
+      <div class="workspace">
+        <nav class="section-nav" aria-label="参数分类">
+          <div class="nav-heading">调试目录</div>
+          <button class="nav-item is-active" type="button" data-section="player"><span>01</span>玩家</button>
+          <button class="nav-item" type="button" data-section="camera"><span>02</span>镜头</button>
+          <button class="nav-item" type="button" data-section="audio"><span>03</span>音频</button>
+          <button class="nav-item" type="button" data-section="input"><span>04</span>输入</button>
+          <button class="nav-item" type="button" data-section="map"><span>05</span>地图编辑</button>
+          <div class="nav-note">
+            <strong>工作方式</strong>
+            <p>调参台预览草稿。游戏只在保存并激活后，于刷新时读取参数。</p>
+          </div>
+        </nav>
+
+        <main class="main-panel">
+          <section id="parameter-view" class="parameter-view" aria-live="polite"></section>
+          <section id="map-view" class="map-view" hidden>
+            <div class="map-toolbar">
+              <div class="toolbar-group">
+                <select id="object-kind-select" aria-label="新增对象类型">
+                  <option value="tree">树木</option>
+                  <option value="ancient-tree">古树</option>
+                  <option value="rock">岩石</option>
+                  <option value="white-rock">白石</option>
+                  <option value="fallen-log">倒木</option>
+                  <option value="water">水域碰撞体</option>
+                </select>
+                <button id="add-object-button" class="button" type="button">新增对象</button>
+                <button id="add-teleport-button" class="button" type="button">新增传送点</button>
+                <button id="add-pond-vertex-button" class="button" type="button">新增池塘顶点</button>
+              </div>
+              <div class="toolbar-group">
+                <button id="duplicate-button" class="button" type="button">复制</button>
+                <button id="remove-button" class="button button-danger" type="button">删除</button>
+                <button id="undo-button" class="button" type="button">撤销</button>
+                <button id="redo-button" class="button" type="button">重做</button>
+                <button id="fit-map-button" class="button" type="button">适配画布</button>
+              </div>
+            </div>
+            <div id="map-editor-host" class="map-editor-host" aria-label="地图编辑画布"></div>
+            <div class="map-help">滚轮缩放 · 中键 / 右键 / 空格拖动平移 · 对象拖动按 10 像素吸附</div>
+          </section>
+        </main>
+
+        <aside id="inspector" class="inspector"></aside>
+      </div>
+
+      <footer class="statusbar">
+        <div id="dirty-status" class="status-item">未修改</div>
+        <div id="validation-status" class="status-item">配置有效</div>
+        <div id="history-status" class="status-item">撤销 0 · 重做 0</div>
+        <details id="issue-details" class="issue-details">
+          <summary>检查详情</summary>
+          <div id="issue-list" class="issue-list"></div>
+        </details>
+      </footer>
+    </div>
+
+    <dialog id="preset-dialog" class="preset-dialog">
+      <form id="preset-form" method="dialog">
+        <p class="dialog-kicker">LOCAL PRESET</p>
+        <h2>保存为新预设</h2>
+        <p>新预设保存在当前浏览器，不会写入源码或线上版本。</p>
+        <label>预设名称<input id="preset-name-input" required maxlength="48" autocomplete="off" /></label>
+        <div class="dialog-actions">
+          <button class="button" value="cancel" type="button" id="cancel-preset-button">取消</button>
+          <button class="button button-primary" value="default" type="submit">创建并激活</button>
+        </div>
+      </form>
+    </dialog>
+    <input id="import-input" type="file" accept="application/json,.json" hidden />
+    <script type="module" src="/src/devtools/main.ts"></script>
+  </body>
+</html>

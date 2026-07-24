@@ -17,6 +17,15 @@ describe('TouchInputState', () => {
     });
   });
 
+  it('consumes a configured dead zone', () => {
+    const input = new TouchInputState(0.3);
+    input.setVector(0.25, 0);
+    expect(input.getDirectionalInput().right).toBe(false);
+    input.setDeadZone(0.1);
+    input.setVector(0.25, 0);
+    expect(input.getDirectionalInput().right).toBe(true);
+  });
+
   it.each([
     [[0, -1], [true, false, false, false]],
     [[1, -1], [true, false, false, true]],

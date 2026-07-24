@@ -11,6 +11,7 @@ const EMPTY_DIRECTIONS: DirectionalInput = {
 };
 
 export class TouchInputState {
+  private deadZone: number;
   private snapshot: TouchInputSnapshot = {
     active: false,
     sprinting: false,
@@ -18,9 +19,17 @@ export class TouchInputState {
     ...EMPTY_DIRECTIONS,
   };
 
+  constructor(deadZone = JOYSTICK_DEAD_ZONE) {
+    this.deadZone = deadZone;
+  }
+
+  setDeadZone(deadZone: number): void {
+    this.deadZone = Math.min(Math.max(deadZone, 0), 0.5);
+  }
+
   setVector(x: number, y: number): Readonly<TouchInputSnapshot> {
     const magnitude = Math.hypot(x, y);
-    if (magnitude < JOYSTICK_DEAD_ZONE) {
+    if (magnitude < this.deadZone) {
       this.snapshot = {
         active: true,
         sprinting: this.snapshot.sprinting,

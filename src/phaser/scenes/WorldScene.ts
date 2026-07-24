@@ -1,22 +1,15 @@
 import Phaser from 'phaser';
 import { ASSET_KEYS } from '../../game/assets/manifest';
-import { WORLD_LAYOUT } from '../../game/content/worldLayout';
+import type { GameConfig } from '../../game/config/GameConfig';
 import { touchInput } from '../../game/input/TouchInputState';
 import {
   mergeDirectionalInput,
-  PLAYER_SPRINT_SPEED,
-  PLAYER_SPEED,
   resolveMovement,
   type DirectionalInput,
 } from '../../game/input/movement';
 import { gameStore } from '../../game/state/GameStore';
 import type { ColliderDefinition, PointDefinition } from '../../game/types';
 import { createWorldView, type TreeOccluder } from '../world/createWorldView';
-
-const PLAYER_VISUAL_SIZE = 64;
-const PLAYER_BODY_WIDTH = 28;
-const PLAYER_BODY_HEIGHT = 32;
-const ZOOM_LEVELS = [0.8, 1, 1.2] as const;
 
 interface MovementKeys {
   up: Phaser.Input.Keyboard.Key;
@@ -41,15 +34,17 @@ export class WorldScene extends Phaser.Scene {
   private nextFootstepAt = 0;
   private nextSnapshotAt = 0;
   private baseSpriteScale = 1;
-  private zoomIndex = 1;
+  private zoomIndex: number;
   private baseCameraZoom = 1;
 
-  constructor() {
+  constructor(private readonly gameConfig: Readonly<GameConfig>) {
     super(WorldScene.KEY);
+    this.zoomIndex = gameConfig.camera.defaultZoomIndex;
   }
 
   create(): void {
-    const layout = WORLD_LAYOUT;
+    const layout = this.gameConfig.world;
+    this.zoomIndex = this.gameConfig.camera.defaultZoomIndex;
     this.physics.world.setBounds(0, 0, layout.width, layout.height);
     this.cameras.main.setBounds(0, 0, layout.width, layout.height);
     this.cameras.main.setBackgroundColor('#53624b');
@@ -62,8 +57,13 @@ export class WorldScene extends Phaser.Scene {
 
     this.applyCameraZoom(this.scale.gameSize.height);
     this.cameras.main.centerOn(layout.spawn.x, layout.spawn.y);
-    this.cameras.main.startFollow(this.playerBody, true, 0.1, 0.1);
-    this.cameras.main.fadeIn(700, 0, 0, 0);
+    this.cameras.main.startFollow(
+      this.playerBody,
+      true,
+      this.gameConfig.camera.followLerp,
+      this.gameConfig.camera.followLerp,
+    );
+    this.cameras.main.fadeIn(this.gameConfig.camera.fadeInMs, 0, 0, 0);
 
     this.scale.on(Phaser.Scale.Events.RESIZE, this.handleResize);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
@@ -78,9 +78,10 @@ export class WorldScene extends Phaser.Scene {
 
   update(time: number): void {
     const sprinting = Boolean(this.sprintKey?.isDown || touchInput.isSprinting());
+    const speed = this.gameConfig.player.moveSpeed;
     const movement = resolveMovement(
       mergeDirectionalInput(this.getKeyboardInput(), touchInput.getDirectionalInput()),
-      sprinting ? PLAYER_SPRINT_SPEED : PLAYER_SPEED,
+      sprinting ? speed * this.gameConfig.player.sprintMultiplier : speed,
     );
 
     this.body.setVelocity(movement.x, movement.y);
@@ -89,7 +90,7 @@ export class WorldScene extends Phaser.Scene {
       this.facingRadians = Math.atan2(movement.y, movement.x) - Math.PI / 2;
       if (time >= this.nextFootstepAt) {
         this.game.events.emit('player-step');
-        this.nextFootstepAt = time + 285;
+        this.nextFootstepAt = time + this.gameConfig.player.footstepIntervalMs;
       }
     }
 
@@ -133,13 +134,15 @@ export class WorldScene extends Phaser.Scene {
   }
 
   cycleZoom(direction: -1 | 1): void {
-    this.zoomIndex = Phaser.Math.Clamp(this.zoomIndex + direction, 0, ZOOM_LEVELS.length - 1);
-    this.setZoom(ZOOM_LEVELS[this.zoomIndex]);
+    const zoomLevels = this.gameConfig.camera.zoomLevels;
+    this.zoomIndex = Phaser.Math.Clamp(this.zoomIndex + direction, 0, zoomLevels.length - 1);
+    this.setZoom(zoomLevels[this.zoomIndex]);
   }
 
   setZoom(zoom: number): void {
-    const nearestIndex = ZOOM_LEVELS.reduce((bestIndex, candidate, index) => (
-      Math.abs(candidate - zoom) < Math.abs(ZOOM_LEVELS[bestIndex] - zoom) ? index : bestIndex
+    const zoomLevels = this.gameConfig.camera.zoomLevels;
+    const nearestIndex = zoomLevels.reduce((bestIndex, candidate, index) => (
+      Math.abs(candidate - zoom) < Math.abs(zoomLevels[bestIndex] - zoom) ? index : bestIndex
     ), 0);
     this.zoomIndex = nearestIndex;
     this.applyCameraZoom(this.scale.gameSize.height);
@@ -151,14 +154,14 @@ export class WorldScene extends Phaser.Scene {
   }
 
   teleport(index: number): void {
-    const point = WORLD_LAYOUT.teleportPoints[index];
+    const point = this.gameConfig.world.teleportPoints[index];
     if (point) {
       this.movePlayerTo(point);
     }
   }
 
   resetPlayer(): void {
-    this.movePlayerTo(WORLD_LAYOUT.spawn);
+    this.movePlayerTo(this.gameConfig.world.spawn);
     this.facingRadians = Math.PI;
     this.playerSprite.setRotation(this.facingRadians);
   }
@@ -183,21 +186,23 @@ export class WorldScene extends Phaser.Scene {
   }
 
   private createPlayer(): void {
-    const { x, y } = WORLD_LAYOUT.spawn;
-    this.playerBody = this.add.zone(x, y, PLAYER_BODY_WIDTH, PLAYER_BODY_HEIGHT).setOrigin(0.5);
+    const { player, world } = this.gameConfig;
+    const { x, y } = world.spawn;
+    this.playerBody = this.add.zone(x, y, player.bodyWidth, player.bodyHeight).setOrigin(0.5);
     this.physics.add.existing(this.playerBody);
     this.body = this.playerBody.body as Phaser.Physics.Arcade.Body;
-    this.body.setSize(PLAYER_BODY_WIDTH, PLAYER_BODY_HEIGHT);
+    this.body.setSize(player.bodyWidth, player.bodyHeight);
     this.body.setAllowGravity(false);
     this.body.setCollideWorldBounds(true);
-    this.body.setMaxVelocity(PLAYER_SPRINT_SPEED, PLAYER_SPRINT_SPEED);
+    const sprintSpeed = player.moveSpeed * player.sprintMultiplier;
+    this.body.setMaxVelocity(sprintSpeed, sprintSpeed);
 
     this.playerSprite = this.add.image(x, y, ASSET_KEYS.playerFox).setRotation(this.facingRadians);
     const source = this.textures.get(ASSET_KEYS.playerFox).getSourceImage() as HTMLImageElement;
-    this.baseSpriteScale = PLAYER_VISUAL_SIZE / Math.max(source.width, source.height);
+    this.baseSpriteScale = player.visualSize / Math.max(source.width, source.height);
     this.playerSprite.setScale(this.baseSpriteScale).setDepth(y);
 
-    for (const obstacle of WORLD_LAYOUT.obstacles) {
+    for (const obstacle of world.obstacles) {
       const zone = this.createStaticZone(obstacle.x, obstacle.y, obstacle.collider);
       this.physics.add.collider(this.playerBody, zone);
     }
@@ -234,7 +239,9 @@ export class WorldScene extends Phaser.Scene {
 
   private applyCameraZoom(viewportHeight: number): void {
     this.baseCameraZoom = Math.max(viewportHeight, 1) / 720;
-    this.cameras.main.setZoom(this.baseCameraZoom * ZOOM_LEVELS[this.zoomIndex]);
+    this.cameras.main.setZoom(
+      this.baseCameraZoom * this.gameConfig.camera.zoomLevels[this.zoomIndex],
+    );
   }
 
   private createDebugGraphic(): void {
@@ -268,14 +275,15 @@ export class WorldScene extends Phaser.Scene {
 
     this.debugGraphic.clear();
     this.debugGraphic.lineStyle(2, 0x7fffd4, 0.92);
+    const { bodyWidth, bodyHeight } = this.gameConfig.player;
     this.debugGraphic.strokeRect(
-      this.playerBody.x - PLAYER_BODY_WIDTH / 2,
-      this.playerBody.y - PLAYER_BODY_HEIGHT / 2,
-      PLAYER_BODY_WIDTH,
-      PLAYER_BODY_HEIGHT,
+      this.playerBody.x - bodyWidth / 2,
+      this.playerBody.y - bodyHeight / 2,
+      bodyWidth,
+      bodyHeight,
     );
     this.debugGraphic.lineStyle(2, 0xffba73, 0.78);
-    for (const obstacle of WORLD_LAYOUT.obstacles) {
+    for (const obstacle of this.gameConfig.world.obstacles) {
       if (obstacle.collider.shape === 'circle') {
         this.debugGraphic.strokeCircle(obstacle.x, obstacle.y, obstacle.collider.radius);
       } else {
@@ -288,7 +296,7 @@ export class WorldScene extends Phaser.Scene {
       }
     }
     this.debugGraphic.lineStyle(3, 0xd7e8a4, 0.8);
-    this.debugGraphic.strokeRect(0, 0, WORLD_LAYOUT.width, WORLD_LAYOUT.height);
+    this.debugGraphic.strokeRect(0, 0, this.gameConfig.world.width, this.gameConfig.world.height);
   }
 
   private movePlayerTo(point: PointDefinition): void {

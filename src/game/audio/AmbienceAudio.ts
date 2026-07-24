@@ -3,14 +3,18 @@ export class AmbienceAudio {
   private master?: GainNode;
   private music?: HTMLAudioElement;
 
-  constructor(private readonly musicUrl: string) {}
+  constructor(
+    private readonly musicUrl: string,
+    private readonly musicVolume = 0.38,
+    private readonly footstepVolume = 0.38,
+  ) {}
 
   async start(): Promise<void> {
     if (!this.music) {
       this.music = new Audio(this.musicUrl);
       this.music.loop = true;
       this.music.preload = 'auto';
-      this.music.volume = 0.38;
+      this.music.volume = this.musicVolume;
     }
     const musicPlayback = this.music.play().catch(() => undefined);
 
@@ -18,7 +22,7 @@ export class AmbienceAudio {
       if (!this.context) {
         const context = new AudioContext();
         const master = context.createGain();
-        master.gain.value = 0.38;
+        master.gain.value = this.footstepVolume;
         master.connect(context.destination);
         this.context = context;
         this.master = master;

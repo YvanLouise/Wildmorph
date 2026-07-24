@@ -7,10 +7,17 @@ export interface TreeOccluder {
   readonly canopyWidth: number;
   readonly canopyHeight: number;
   readonly canopy: Phaser.GameObjects.Graphics;
+  readonly display: Phaser.GameObjects.Container;
 }
 
 export interface WorldView {
   readonly trees: readonly TreeOccluder[];
+  readonly objects: ReadonlyMap<string, Phaser.GameObjects.Container>;
+}
+
+export interface WorldViewOptions {
+  readonly animated?: boolean;
+  readonly ambientMotion?: boolean;
 }
 
 const COLORS = {
@@ -89,7 +96,7 @@ function createGround(scene: Phaser.Scene, layout: WorldLayout): void {
   }
 }
 
-function createPond(scene: Phaser.Scene, layout: WorldLayout): void {
+function createPond(scene: Phaser.Scene, layout: WorldLayout, animated: boolean): void {
   const points = layout.pondPolygon.map(({ x, y }) => new Phaser.Geom.Point(x, y));
   const water = scene.add.graphics().setDepth(18);
   water.fillStyle(0x465148, 0.55);
@@ -116,15 +123,17 @@ function createPond(scene: Phaser.Scene, layout: WorldLayout): void {
       .setStrokeStyle(2, COLORS.waterLight, 0.4)
       .setFillStyle(0x000000, 0)
       .setDepth(19);
-    scene.tweens.add({
-      targets: ripple,
-      scaleX: 1.34,
-      scaleY: 1.34,
-      alpha: 0.05,
-      duration: 2600 + index * 310,
-      repeat: -1,
-      delay: index * 460,
-    });
+    if (animated) {
+      scene.tweens.add({
+        targets: ripple,
+        scaleX: 1.34,
+        scaleY: 1.34,
+        alpha: 0.05,
+        duration: 2600 + index * 310,
+        repeat: -1,
+        delay: index * 460,
+      });
+    }
   });
 
   const random = new Phaser.Math.RandomDataGenerator(['tuye-demo-0.1-pond']);
@@ -138,14 +147,16 @@ function createPond(scene: Phaser.Scene, layout: WorldLayout): void {
       .setOrigin(0.5, 1)
       .setRotation(random.realInRange(-0.18, 0.18))
       .setDepth(25 + y);
-    scene.tweens.add({
-      targets: reed,
-      angle: reed.angle + random.realInRange(-3, 3),
-      duration: random.between(1800, 3100),
-      yoyo: true,
-      repeat: -1,
-      ease: 'Sine.inOut',
-    });
+    if (animated) {
+      scene.tweens.add({
+        targets: reed,
+        angle: reed.angle + random.realInRange(-3, 3),
+        duration: random.between(1800, 3100),
+        yoyo: true,
+        repeat: -1,
+        ease: 'Sine.inOut',
+      });
+    }
   }
 
   for (let index = 0; index < 7; index += 1) {
@@ -157,20 +168,26 @@ function createPond(scene: Phaser.Scene, layout: WorldLayout): void {
       COLORS.leaf,
       0.72,
     ).setDepth(21).setRotation(random.realInRange(0, Math.PI));
-    scene.tweens.add({
-      targets: leaf,
-      x: leaf.x + random.between(-20, 28),
-      y: leaf.y + random.between(-8, 12),
-      angle: leaf.angle + random.between(-18, 18),
-      duration: random.between(3800, 6800),
-      yoyo: true,
-      repeat: -1,
-      ease: 'Sine.inOut',
-    });
+    if (animated) {
+      scene.tweens.add({
+        targets: leaf,
+        x: leaf.x + random.between(-20, 28),
+        y: leaf.y + random.between(-8, 12),
+        angle: leaf.angle + random.between(-18, 18),
+        duration: random.between(3800, 6800),
+        yoyo: true,
+        repeat: -1,
+        ease: 'Sine.inOut',
+      });
+    }
   }
 }
 
-function createTree(scene: Phaser.Scene, obstacle: ObstacleDefinition): TreeOccluder {
+function createTree(
+  scene: Phaser.Scene,
+  obstacle: ObstacleDefinition,
+  animated: boolean,
+): TreeOccluder {
   const scale = obstacle.visualScale ?? 1;
   const ancient = obstacle.kind === 'ancient-tree';
   const canopyWidth = (ancient ? 220 : 118) * scale;
@@ -202,15 +219,17 @@ function createTree(scene: Phaser.Scene, obstacle: ObstacleDefinition): TreeOccl
   }
 
   container.add([shadow, trunk, trunkMark, canopy]);
-  scene.tweens.add({
-    targets: canopy,
-    angle: ancient ? 0.55 : 0.9,
-    x: ancient ? 1.5 : 1,
-    duration: ancient ? 4300 : 3000 + (obstacle.x % 900),
-    yoyo: true,
-    repeat: -1,
-    ease: 'Sine.inOut',
-  });
+  if (animated) {
+    scene.tweens.add({
+      targets: canopy,
+      angle: ancient ? 0.55 : 0.9,
+      x: ancient ? 1.5 : 1,
+      duration: ancient ? 4300 : 3000 + (obstacle.x % 900),
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.inOut',
+    });
+  }
 
   return {
     x: obstacle.x,
@@ -218,10 +237,14 @@ function createTree(scene: Phaser.Scene, obstacle: ObstacleDefinition): TreeOccl
     canopyWidth,
     canopyHeight,
     canopy,
+    display: container,
   };
 }
 
-function createRock(scene: Phaser.Scene, obstacle: ObstacleDefinition): void {
+function createRock(
+  scene: Phaser.Scene,
+  obstacle: ObstacleDefinition,
+): Phaser.GameObjects.Container {
   const scale = obstacle.visualScale ?? 1;
   const white = obstacle.kind === 'white-rock';
   const width = (white ? 118 : 62) * scale;
@@ -257,9 +280,13 @@ function createRock(scene: Phaser.Scene, obstacle: ObstacleDefinition): void {
     graphic.strokePath();
   }
   container.add([shadow, graphic]);
+  return container;
 }
 
-function createFallenLog(scene: Phaser.Scene, obstacle: ObstacleDefinition): void {
+function createFallenLog(
+  scene: Phaser.Scene,
+  obstacle: ObstacleDefinition,
+): Phaser.GameObjects.Container {
   const width = obstacle.collider.shape === 'rectangle' ? obstacle.collider.width : 110;
   const height = obstacle.collider.shape === 'rectangle' ? obstacle.collider.height : 28;
   const container = scene.add.container(obstacle.x, obstacle.y)
@@ -274,6 +301,7 @@ function createFallenLog(scene: Phaser.Scene, obstacle: ObstacleDefinition): voi
     .setOrigin(0.1, 0.5)
     .setRotation(-0.65);
   container.add([shadow, trunk, end, branch]);
+  return container;
 }
 
 function createAmbientMotion(scene: Phaser.Scene, layout: WorldLayout): void {
@@ -322,32 +350,43 @@ function createAmbientMotion(scene: Phaser.Scene, layout: WorldLayout): void {
   }
 }
 
-export function createWorldView(scene: Phaser.Scene, layout: WorldLayout): WorldView {
+export function createWorldView(
+  scene: Phaser.Scene,
+  layout: WorldLayout,
+  options: WorldViewOptions = {},
+): WorldView {
+  const animated = options.animated ?? true;
   createGround(scene, layout);
-  createPond(scene, layout);
+  createPond(scene, layout, animated);
 
   const trees: TreeOccluder[] = [];
+  const objects = new Map<string, Phaser.GameObjects.Container>();
   for (const obstacle of layout.obstacles) {
     if (obstacle.collisionOnly) {
       continue;
     }
     switch (obstacle.kind) {
       case 'tree':
-      case 'ancient-tree':
-        trees.push(createTree(scene, obstacle));
+      case 'ancient-tree': {
+        const tree = createTree(scene, obstacle, animated);
+        trees.push(tree);
+        objects.set(obstacle.id, tree.display);
         break;
+      }
       case 'rock':
       case 'white-rock':
-        createRock(scene, obstacle);
+        objects.set(obstacle.id, createRock(scene, obstacle));
         break;
       case 'fallen-log':
-        createFallenLog(scene, obstacle);
+        objects.set(obstacle.id, createFallenLog(scene, obstacle));
         break;
       case 'water':
         break;
     }
   }
 
-  createAmbientMotion(scene, layout);
-  return { trees };
+  if (options.ambientMotion ?? true) {
+    createAmbientMotion(scene, layout);
+  }
+  return { trees, objects };
 }

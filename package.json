@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "tune": "vite --open /devtools.html",
     "launch": "node scripts/launch-game.mjs",
     "build": "tsc -b && vite build",
     "preview": "vite preview",

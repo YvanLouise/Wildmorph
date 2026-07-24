@@ -3,14 +3,27 @@ import './style.css';
 import { ASSET_URLS } from './game/assets/manifest';
 import { AmbienceAudio } from './game/audio/AmbienceAudio';
 import { LoopingMusic } from './game/audio/LoopingMusic';
+import { cloneGameConfig } from './game/config/GameConfig';
+import { loadActiveGameConfig } from './game/config/devPresets';
+import { touchInput } from './game/input/TouchInputState';
 import { gameStore } from './game/state/GameStore';
 import type { GameSnapshot } from './game/types';
 import { BootScene } from './phaser/scenes/BootScene';
 import { WorldScene } from './phaser/scenes/WorldScene';
 import { AppUI } from './ui/AppUI';
 
-const ambience = new AmbienceAudio(ASSET_URLS.backgroundMusic);
-const titleMusic = new LoopingMusic(ASSET_URLS.titleMusic);
+const gameConfig = loadActiveGameConfig(
+  import.meta.env.DEV,
+  typeof localStorage === 'undefined' ? undefined : localStorage,
+);
+touchInput.setDeadZone(gameConfig.input.joystickDeadZone);
+
+const ambience = new AmbienceAudio(
+  ASSET_URLS.backgroundMusic,
+  gameConfig.audio.ambienceVolume,
+  gameConfig.audio.footstepVolume,
+);
+const titleMusic = new LoopingMusic(ASSET_URLS.titleMusic, gameConfig.audio.titleMusicVolume);
 let assetsReady = false;
 let debugVisible = false;
 
@@ -40,7 +53,7 @@ const game = new Phaser.Game({
       debug: false,
     },
   },
-  scene: [BootScene, WorldScene],
+  scene: [BootScene, new WorldScene(gameConfig)],
 });
 
 const getWorldScene = (): WorldScene | undefined => {
@@ -215,6 +228,7 @@ document.addEventListener('visibilitychange', () => {
 if (import.meta.env.DEV) {
   window.__TUYE_DEBUG__ = {
     getSnapshot: () => gameStore.getSnapshot(),
+    getConfig: () => cloneGameConfig(gameConfig),
     teleport: (index) => getWorldScene()?.teleport(index),
     resetPlayer: () => getWorldScene()?.resetPlayer(),
     setZoom: (zoom) => getWorldScene()?.setZoom(zoom),

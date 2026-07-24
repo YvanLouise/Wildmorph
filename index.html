@@ -106,6 +106,30 @@
               <p>横屏探索初生浅林</p>
             </div>
           </section>
+
+          <section id="mobile-fullscreen-prompt" class="mobile-dialog mobile-dialog--prompt" aria-hidden="true">
+            <div class="mobile-dialog-card" role="dialog" aria-modal="true" aria-labelledby="fullscreen-prompt-title">
+              <p class="eyebrow">沉浸探索</p>
+              <h2 id="fullscreen-prompt-title">开启全屏模式？</h2>
+              <p id="fullscreen-prompt-status" class="mobile-dialog-copy"></p>
+              <div class="mobile-dialog-actions">
+                <button id="enable-fullscreen-button" class="game-button game-button--primary" type="button">开启全屏</button>
+                <button id="skip-fullscreen-button" class="game-button game-button--quiet" type="button">暂不开启</button>
+              </div>
+            </div>
+          </section>
+
+          <section id="mobile-settings-screen" class="mobile-dialog mobile-dialog--settings" aria-hidden="true">
+            <div class="mobile-dialog-card" role="dialog" aria-modal="true" aria-labelledby="mobile-settings-title">
+              <button id="close-mobile-settings-button" class="mobile-dialog-close" type="button" aria-label="关闭设置">×</button>
+              <p class="eyebrow">林地选项</p>
+              <h2 id="mobile-settings-title">设置</h2>
+              <p id="settings-fullscreen-status" class="mobile-dialog-copy"></p>
+              <div class="mobile-dialog-actions">
+                <button id="settings-fullscreen-button" class="game-button game-button--primary" type="button" aria-pressed="false">开启全屏模式</button>
+              </div>
+            </div>
+          </section>
           <div id="safe-area-probe" class="safe-area-probe" aria-hidden="true"></div>
         </div>
       </main>
