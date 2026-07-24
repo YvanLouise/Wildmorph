@@ -2,7 +2,7 @@
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#17221d" />
     <link rel="icon" type="image/png" href="/蜕野icon1.png" />
     <link rel="apple-touch-icon" href="/蜕野icon1.png" />
@@ -14,39 +14,41 @@
         <div id="game-root"></div>
         <div id="ui-root" data-phase="title">
           <section id="title-screen" class="screen is-visible" aria-labelledby="game-title">
-            <img
-              id="title-art"
-              class="title-art"
-              alt=""
-              decoding="async"
-              fetchpriority="high"
-              draggable="false"
-            />
-            <div class="title-accessible-copy">
-              <h1 id="game-title">蜕野</h1>
-              <p>在荒野中蜕变</p>
+            <div id="title-frame" class="title-frame">
+              <img
+                id="title-art"
+                class="title-art"
+                alt=""
+                decoding="async"
+                fetchpriority="high"
+                draggable="false"
+              />
+              <div class="title-accessible-copy">
+                <h1 id="game-title">蜕野</h1>
+                <p>在荒野中蜕变</p>
+              </div>
+              <button
+                id="start-button"
+                class="title-hotspot title-hotspot--start"
+                type="button"
+                aria-label="开始探索"
+                disabled
+              ><span class="title-hotspot-label">开始探索</span></button>
+              <button
+                id="codex-button"
+                class="title-hotspot title-hotspot--codex"
+                type="button"
+                aria-label="图鉴"
+              ><span class="title-hotspot-label">图鉴</span></button>
+              <button
+                id="settings-button"
+                class="title-hotspot title-hotspot--settings"
+                type="button"
+                aria-label="设置"
+              ><span class="title-hotspot-label">设置</span></button>
+              <p id="loading-label" class="loading-label" role="status">林雾正在散去…</p>
+              <p id="title-notice" class="title-notice" role="status" aria-live="polite"></p>
             </div>
-            <button
-              id="start-button"
-              class="title-hotspot title-hotspot--start"
-              type="button"
-              aria-label="开始探索"
-              disabled
-            ><span class="title-hotspot-label">开始探索</span></button>
-            <button
-              id="codex-button"
-              class="title-hotspot title-hotspot--codex"
-              type="button"
-              aria-label="图鉴"
-            ><span class="title-hotspot-label">图鉴</span></button>
-            <button
-              id="settings-button"
-              class="title-hotspot title-hotspot--settings"
-              type="button"
-              aria-label="设置"
-            ><span class="title-hotspot-label">设置</span></button>
-            <p id="loading-label" class="loading-label" role="status">林雾正在散去…</p>
-            <p id="title-notice" class="title-notice" role="status" aria-live="polite"></p>
           </section>
 
           <section id="game-hud" class="hud" aria-label="游戏信息">
@@ -55,10 +57,28 @@
               <span>初生浅林</span>
             </div>
             <div id="controls-hint" class="controls-hint">
-              <span class="key-row"><kbd>WASD</kbd><i>/</i><kbd>方向键</kbd></span>
-              <span>移动</span>
+              <span class="desktop-controls-copy">
+                <span class="key-row"><kbd>WASD</kbd><i>/</i><kbd>方向键</kbd></span>
+                <span>移动 · <kbd>Shift</kbd> 冲刺</span>
+              </span>
+              <span class="touch-controls-copy">左侧滑动：移动 · 右侧按住：冲刺</span>
             </div>
           </section>
+
+          <div id="touch-controls" class="touch-controls" aria-hidden="true">
+            <div id="joystick-zone" class="joystick-zone">
+              <div id="joystick-visual" class="joystick-visual" aria-hidden="true">
+                <div class="joystick-ring"></div>
+                <div id="joystick-knob" class="joystick-knob"></div>
+              </div>
+            </div>
+            <button id="touch-pause-button" class="touch-pause-button" type="button" aria-label="暂停游戏">
+              <span aria-hidden="true"></span>
+            </button>
+            <button id="touch-sprint-button" class="touch-sprint-button" type="button" aria-label="按住冲刺" aria-pressed="false">
+              <span aria-hidden="true">冲刺</span>
+            </button>
+          </div>
 
           <section id="pause-screen" class="screen pause-screen" aria-labelledby="pause-title">
             <div class="pause-card">
@@ -78,6 +98,15 @@
             <span id="debug-stats">FPS -- · X -- · Y --</span>
             <span>F1 隐藏 · [ / ] 缩放 · 1–4 传送 · R 归位</span>
           </aside>
+
+          <section id="orientation-overlay" class="orientation-overlay" aria-hidden="true">
+            <div class="orientation-card" role="status">
+              <div class="phone-outline" aria-hidden="true"><span></span></div>
+              <strong>请旋转手机</strong>
+              <p>横屏探索初生浅林</p>
+            </div>
+          </section>
+          <div id="safe-area-probe" class="safe-area-probe" aria-hidden="true"></div>
         </div>
       </main>
     </div>

@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import './style.css';
 import { ASSET_URLS } from './game/assets/manifest';
 import { AmbienceAudio } from './game/audio/AmbienceAudio';
+import { LoopingMusic } from './game/audio/LoopingMusic';
 import { gameStore } from './game/state/GameStore';
 import type { GameSnapshot } from './game/types';
 import { BootScene } from './phaser/scenes/BootScene';
@@ -9,6 +10,7 @@ import { WorldScene } from './phaser/scenes/WorldScene';
 import { AppUI } from './ui/AppUI';
 
 const ambience = new AmbienceAudio(ASSET_URLS.backgroundMusic);
+const titleMusic = new LoopingMusic(ASSET_URLS.titleMusic);
 let assetsReady = false;
 let debugVisible = false;
 
@@ -24,8 +26,7 @@ const game = new Phaser.Game({
     roundPixels: false,
   },
   scale: {
-    mode: Phaser.Scale.FIT,
-    autoCenter: Phaser.Scale.CENTER_BOTH,
+    mode: Phaser.Scale.RESIZE,
     width: 1280,
     height: 720,
   },
@@ -51,6 +52,7 @@ const startGame = (): void => {
   if (!assetsReady || gameStore.getPhase() !== 'title') {
     return;
   }
+  void titleMusic.stop();
   gameStore.transition('playing');
   void ambience.start();
   game.scene.start(WorldScene.KEY);
@@ -95,10 +97,12 @@ const returnToTitle = (): void => {
   game.scene.stop(WorldScene.KEY);
   gameStore.transition('title');
   void ambience.stop();
+  void titleMusic.start();
 };
 
 const ui = new AppUI({
   onStart: startGame,
+  onPause: pauseGame,
   onContinue: continueGame,
   onRestart: restartGame,
   onReturnToTitle: returnToTitle,
@@ -171,16 +175,40 @@ window.addEventListener('keydown', (event) => {
   }
 });
 
+const startTitleMusicFromInteraction = (event: Event): void => {
+  if (gameStore.getPhase() !== 'title') {
+    return;
+  }
+  if (event.target instanceof Element && event.target.closest('#start-button')) {
+    return;
+  }
+  void titleMusic.start();
+};
+
+window.addEventListener('pointerdown', startTitleMusicFromInteraction, { passive: true });
+window.addEventListener('keydown', startTitleMusicFromInteraction);
+
 const pauseForFocusLoss = (): void => {
   if (gameStore.getPhase() === 'playing') {
     pauseGame();
+  } else if (gameStore.getPhase() === 'title') {
+    void titleMusic.pause();
+  }
+};
+
+const resumeTitleMusicOnFocus = (): void => {
+  if (gameStore.getPhase() === 'title') {
+    void titleMusic.resume();
   }
 };
 
 window.addEventListener('blur', pauseForFocusLoss);
+window.addEventListener('focus', resumeTitleMusicOnFocus);
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) {
     pauseForFocusLoss();
+  } else {
+    resumeTitleMusicOnFocus();
   }
 });
 

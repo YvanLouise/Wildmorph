@@ -2,6 +2,39 @@ export type GamePhase = 'title' | 'playing' | 'paused' | 'resetting';
 
 export type InputAction = 'move-up' | 'move-down' | 'move-left' | 'move-right' | 'pause';
 
+export type InputMode = 'keyboard' | 'touch';
+
+export interface TouchVector {
+  readonly x: number;
+  readonly y: number;
+}
+
+export interface TouchInputSnapshot {
+  readonly active: boolean;
+  readonly sprinting: boolean;
+  readonly vector: TouchVector;
+  readonly up: boolean;
+  readonly down: boolean;
+  readonly left: boolean;
+  readonly right: boolean;
+}
+
+export interface SafeAreaInsets {
+  readonly top: number;
+  readonly right: number;
+  readonly bottom: number;
+  readonly left: number;
+}
+
+export interface ViewportState {
+  readonly width: number;
+  readonly height: number;
+  readonly orientation: 'landscape' | 'portrait';
+  readonly inputMode: InputMode;
+  readonly safeArea: SafeAreaInsets;
+  readonly baseCameraZoom: number;
+}
+
 export interface PlayerState {
   readonly x: number;
   readonly y: number;

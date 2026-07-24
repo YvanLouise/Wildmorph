@@ -13,6 +13,12 @@ export default defineConfig({
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'], channel: 'chrome' },
+      testIgnore: /mobile\.spec\.ts/,
+    },
+    {
+      name: 'mobile-chromium',
+      testMatch: /mobile\.spec\.ts/,
+      use: { ...devices['Pixel 7 landscape'], channel: 'chrome' },
     },
   ],
 });

@@ -1,7 +1,14 @@
 import Phaser from 'phaser';
 import { ASSET_KEYS } from '../../game/assets/manifest';
 import { WORLD_LAYOUT } from '../../game/content/worldLayout';
-import { PLAYER_SPEED, resolveMovement } from '../../game/input/movement';
+import { touchInput } from '../../game/input/TouchInputState';
+import {
+  mergeDirectionalInput,
+  PLAYER_SPRINT_SPEED,
+  PLAYER_SPEED,
+  resolveMovement,
+  type DirectionalInput,
+} from '../../game/input/movement';
 import { gameStore } from '../../game/state/GameStore';
 import type { ColliderDefinition, PointDefinition } from '../../game/types';
 import { createWorldView, type TreeOccluder } from '../world/createWorldView';
@@ -24,8 +31,9 @@ export class WorldScene extends Phaser.Scene {
   private playerBody!: Phaser.GameObjects.Zone;
   private playerSprite!: Phaser.GameObjects.Image;
   private body!: Phaser.Physics.Arcade.Body;
-  private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
-  private wasd!: MovementKeys;
+  private cursors?: Phaser.Types.Input.Keyboard.CursorKeys;
+  private wasd?: MovementKeys;
+  private sprintKey?: Phaser.Input.Keyboard.Key;
   private trees: readonly TreeOccluder[] = [];
   private debugGraphic!: Phaser.GameObjects.Graphics;
   private debugVisible = false;
@@ -34,6 +42,7 @@ export class WorldScene extends Phaser.Scene {
   private nextSnapshotAt = 0;
   private baseSpriteScale = 1;
   private zoomIndex = 1;
+  private baseCameraZoom = 1;
 
   constructor() {
     super(WorldScene.KEY);
@@ -51,12 +60,14 @@ export class WorldScene extends Phaser.Scene {
     this.createInput();
     this.createDebugGraphic();
 
-    this.cameras.main.setZoom(ZOOM_LEVELS[this.zoomIndex]);
+    this.applyCameraZoom(this.scale.gameSize.height);
     this.cameras.main.centerOn(layout.spawn.x, layout.spawn.y);
     this.cameras.main.startFollow(this.playerBody, true, 0.1, 0.1);
     this.cameras.main.fadeIn(700, 0, 0, 0);
 
+    this.scale.on(Phaser.Scale.Events.RESIZE, this.handleResize);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.scale.off(Phaser.Scale.Events.RESIZE, this.handleResize);
       this.clearInput();
       this.body.setVelocity(0, 0);
     });
@@ -66,12 +77,11 @@ export class WorldScene extends Phaser.Scene {
   }
 
   update(time: number): void {
-    const movement = resolveMovement({
-      up: this.cursors.up.isDown || this.wasd.up.isDown,
-      down: this.cursors.down.isDown || this.wasd.down.isDown,
-      left: this.cursors.left.isDown || this.wasd.left.isDown,
-      right: this.cursors.right.isDown || this.wasd.right.isDown,
-    });
+    const sprinting = Boolean(this.sprintKey?.isDown || touchInput.isSprinting());
+    const movement = resolveMovement(
+      mergeDirectionalInput(this.getKeyboardInput(), touchInput.getDirectionalInput()),
+      sprinting ? PLAYER_SPRINT_SPEED : PLAYER_SPEED,
+    );
 
     this.body.setVelocity(movement.x, movement.y);
 
@@ -108,6 +118,7 @@ export class WorldScene extends Phaser.Scene {
 
   clearInput(): void {
     this.input.keyboard?.resetKeys();
+    touchInput.clear();
     if (this.body) {
       this.body.setVelocity(0, 0);
     }
@@ -131,10 +142,10 @@ export class WorldScene extends Phaser.Scene {
       Math.abs(candidate - zoom) < Math.abs(ZOOM_LEVELS[bestIndex] - zoom) ? index : bestIndex
     ), 0);
     this.zoomIndex = nearestIndex;
-    this.cameras.main.setZoom(ZOOM_LEVELS[this.zoomIndex]);
+    this.applyCameraZoom(this.scale.gameSize.height);
     gameStore.updateRuntime({
       fps: this.game.loop.actualFps,
-      cameraZoom: ZOOM_LEVELS[this.zoomIndex],
+      cameraZoom: this.cameras.main.zoom,
     });
     this.publishSnapshot();
   }
@@ -179,7 +190,7 @@ export class WorldScene extends Phaser.Scene {
     this.body.setSize(PLAYER_BODY_WIDTH, PLAYER_BODY_HEIGHT);
     this.body.setAllowGravity(false);
     this.body.setCollideWorldBounds(true);
-    this.body.setMaxVelocity(PLAYER_SPEED, PLAYER_SPEED);
+    this.body.setMaxVelocity(PLAYER_SPRINT_SPEED, PLAYER_SPRINT_SPEED);
 
     this.playerSprite = this.add.image(x, y, ASSET_KEYS.playerFox).setRotation(this.facingRadians);
     const source = this.textures.get(ASSET_KEYS.playerFox).getSourceImage() as HTMLImageElement;
@@ -195,15 +206,35 @@ export class WorldScene extends Phaser.Scene {
   private createInput(): void {
     const keyboard = this.input.keyboard;
     if (!keyboard) {
-      throw new Error('Keyboard input is required for this desktop demo.');
+      return;
     }
     this.cursors = keyboard.createCursorKeys();
+    this.sprintKey = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SHIFT);
     this.wasd = keyboard.addKeys({
       up: Phaser.Input.Keyboard.KeyCodes.W,
       down: Phaser.Input.Keyboard.KeyCodes.S,
       left: Phaser.Input.Keyboard.KeyCodes.A,
       right: Phaser.Input.Keyboard.KeyCodes.D,
     }) as MovementKeys;
+  }
+
+  private getKeyboardInput(): DirectionalInput {
+    return {
+      up: Boolean(this.cursors?.up.isDown || this.wasd?.up.isDown),
+      down: Boolean(this.cursors?.down.isDown || this.wasd?.down.isDown),
+      left: Boolean(this.cursors?.left.isDown || this.wasd?.left.isDown),
+      right: Boolean(this.cursors?.right.isDown || this.wasd?.right.isDown),
+    };
+  }
+
+  private readonly handleResize = (gameSize: { readonly height: number }): void => {
+    this.applyCameraZoom(gameSize.height);
+    this.publishSnapshot();
+  };
+
+  private applyCameraZoom(viewportHeight: number): void {
+    this.baseCameraZoom = Math.max(viewportHeight, 1) / 720;
+    this.cameras.main.setZoom(this.baseCameraZoom * ZOOM_LEVELS[this.zoomIndex]);
   }
 
   private createDebugGraphic(): void {

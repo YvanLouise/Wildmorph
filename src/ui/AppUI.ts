@@ -1,8 +1,10 @@
 import type { GamePhase, GameSnapshot } from '../game/types';
 import { ASSET_URLS } from '../game/assets/manifest';
+import { TouchControls } from './TouchControls';
 
 export interface AppUICallbacks {
   readonly onStart: () => void;
+  readonly onPause: () => void;
   readonly onContinue: () => void;
   readonly onRestart: () => void;
   readonly onReturnToTitle: () => void;
@@ -28,6 +30,7 @@ export class AppUI {
   private readonly continueButton = requireElement<HTMLButtonElement>('continue-button');
   private readonly restartButton = requireElement<HTMLButtonElement>('restart-button');
   private readonly titleButton = requireElement<HTMLButtonElement>('title-button');
+  private readonly touchPauseButton = requireElement<HTMLButtonElement>('touch-pause-button');
   private readonly loadingLabel = requireElement<HTMLElement>('loading-label');
   private readonly controlsHint = requireElement<HTMLElement>('controls-hint');
   private readonly debugPanel = requireElement<HTMLElement>('debug-panel');
@@ -37,9 +40,11 @@ export class AppUI {
   private phaserAssetsReady = false;
   private titleArtReady = false;
   private titleArtFailed = false;
+  private readonly touchControls: TouchControls;
 
   constructor(callbacks: AppUICallbacks) {
     this.startButton.addEventListener('click', callbacks.onStart);
+    this.touchPauseButton.addEventListener('click', callbacks.onPause);
     this.continueButton.addEventListener('click', callbacks.onContinue);
     this.restartButton.addEventListener('click', callbacks.onRestart);
     this.titleButton.addEventListener('click', callbacks.onReturnToTitle);
@@ -62,6 +67,7 @@ export class AppUI {
       this.updateStartAvailability();
     }, { once: true });
     this.titleArt.src = ASSET_URLS.titleScreen;
+    this.touchControls = new TouchControls({ onPause: callbacks.onPause });
   }
 
   setAssetsReady(): void {
@@ -75,6 +81,7 @@ export class AppUI {
     this.pauseScreen.classList.toggle('is-visible', phase === 'paused');
     this.titleScreen.setAttribute('aria-hidden', String(phase !== 'title'));
     this.pauseScreen.setAttribute('aria-hidden', String(phase !== 'paused'));
+    this.touchControls.setPhase(phase);
 
     if (phase === 'playing') {
       this.showControlsHint();

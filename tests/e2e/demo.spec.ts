@@ -32,19 +32,19 @@ test('renders the title art and keeps all hotspots aligned', async ({ page }) =>
   } as const;
 
   const assertHotspotAlignment = async () => {
-    const stage = await page.locator('#game-stage').boundingBox();
-    expect(stage).not.toBeNull();
-    if (!stage) return;
+    const titleFrame = await page.locator('#title-frame').boundingBox();
+    expect(titleFrame).not.toBeNull();
+    if (!titleFrame) return;
 
     for (const [id, expected] of Object.entries(expectedHotspots)) {
       const hotspot = await page.locator(`#${id}`).boundingBox();
       expect(hotspot).not.toBeNull();
       if (!hotspot) continue;
 
-      expect((hotspot.x - stage.x) / stage.width).toBeCloseTo(expected.left, 2);
-      expect((hotspot.y - stage.y) / stage.height).toBeCloseTo(expected.top, 2);
-      expect(hotspot.width / stage.width).toBeCloseTo(expected.width, 2);
-      expect(hotspot.height / stage.height).toBeCloseTo(expected.height, 2);
+      expect((hotspot.x - titleFrame.x) / titleFrame.width).toBeCloseTo(expected.left, 2);
+      expect((hotspot.y - titleFrame.y) / titleFrame.height).toBeCloseTo(expected.top, 2);
+      expect(hotspot.width / titleFrame.width).toBeCloseTo(expected.width, 2);
+      expect(hotspot.height / titleFrame.height).toBeCloseTo(expected.height, 2);
     }
   };
 
@@ -64,7 +64,12 @@ test('renders the title art and keeps all hotspots aligned', async ({ page }) =>
   ));
   expect(reducedTransitionSeconds).toBeLessThanOrEqual(0.000001);
 
+  const titleMusicResponsePromise = page.waitForResponse((response) => (
+    decodeURIComponent(response.url()).includes('/music/悠闲-悠然_1.ogg')
+    && [200, 206].includes(response.status())
+  ));
   await page.locator('#codex-button').click();
+  await titleMusicResponsePromise;
   await expect(page.locator('#title-notice')).toHaveText('图鉴将在后续版本开放');
   await expect(page.locator('#ui-root')).toHaveAttribute('data-phase', 'title');
   await expect(page.locator('#title-notice')).not.toHaveClass(/is-visible/, { timeout: 2500 });
@@ -84,7 +89,8 @@ test('allows exploration when the title art cannot load', async ({ page }) => {
 
 test('starts, moves, pauses, resets, and returns to title', async ({ page }) => {
   const musicResponsePromise = page.waitForResponse((response) => (
-    response.url().includes('.ogg') && [200, 206].includes(response.status())
+    decodeURIComponent(response.url()).includes('/music/平静-悠然1.ogg')
+    && [200, 206].includes(response.status())
   ));
   await page.locator('#start-button').click();
   await musicResponsePromise;
@@ -128,6 +134,25 @@ test('normalizes diagonal input and auto-pauses on focus loss', async ({ page })
 
   await page.evaluate(() => window.dispatchEvent(new Event('blur')));
   await expect(page.locator('#ui-root')).toHaveAttribute('data-phase', 'paused');
+});
+
+test('sprints at 1.5x speed while Shift is held', async ({ page }) => {
+  await page.locator('#start-button').click();
+  await page.keyboard.down('d');
+  await expect.poll(async () => page.evaluate(() => (
+    window.__TUYE_DEBUG__?.getSnapshot().player.velocityX
+  ))).toBe(200);
+
+  await page.keyboard.down('Shift');
+  await expect.poll(async () => page.evaluate(() => (
+    window.__TUYE_DEBUG__?.getSnapshot().player.velocityX
+  ))).toBe(300);
+
+  await page.keyboard.up('Shift');
+  await expect.poll(async () => page.evaluate(() => (
+    window.__TUYE_DEBUG__?.getSnapshot().player.velocityX
+  ))).toBe(200);
+  await page.keyboard.up('d');
 });
 
 test('keeps a 16:9 stage and exposes safe debug travel', async ({ page }) => {

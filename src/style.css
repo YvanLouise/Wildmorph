@@ -24,6 +24,7 @@ body,
   width: 100%;
   height: 100%;
   margin: 0;
+  overscroll-behavior: none;
 }
 
 body {
@@ -102,12 +103,19 @@ button:focus-visible {
     linear-gradient(150deg, #31473a, #18251f 58%, #111915);
 }
 
+.title-frame {
+  position: relative;
+  width: min(100%, calc(100dvh * 1672 / 941));
+  aspect-ratio: 1672 / 941;
+  overflow: hidden;
+}
+
 .title-art {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: fill;
   pointer-events: none;
   -webkit-user-drag: none;
 }
@@ -401,6 +409,16 @@ h2 {
   transition: opacity 1.4s ease, transform 1.4s ease;
 }
 
+.desktop-controls-copy {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.touch-controls-copy {
+  display: none;
+}
+
 .controls-hint.is-faded {
   opacity: 0;
   transform: translateY(8px);
@@ -472,6 +490,318 @@ kbd {
 
 .debug-panel.is-visible {
   display: flex;
+}
+
+.touch-controls {
+  position: absolute;
+  inset: 0;
+  z-index: 12;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.joystick-zone {
+  position: absolute;
+  left: env(safe-area-inset-left, 0px);
+  bottom: env(safe-area-inset-bottom, 0px);
+  width: 60%;
+  height: 68%;
+  touch-action: none;
+}
+
+.joystick-visual {
+  position: absolute;
+  width: 112px;
+  height: 112px;
+  opacity: 0;
+  transform: translate(-50%, -50%);
+  transition: opacity 90ms ease;
+}
+
+.joystick-visual.is-active {
+  opacity: 1;
+}
+
+.joystick-ring,
+.joystick-knob {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.joystick-ring {
+  width: 100%;
+  height: 100%;
+  border: 1px solid rgba(239, 228, 174, 0.4);
+  background:
+    radial-gradient(circle, transparent 34%, rgba(22, 42, 34, 0.28) 35%, rgba(13, 29, 24, 0.52) 100%);
+  box-shadow: inset 0 0 24px rgba(210, 205, 132, 0.08), 0 4px 20px rgba(0, 0, 0, 0.2);
+  transform: translate(-50%, -50%);
+}
+
+.joystick-knob {
+  width: 46px;
+  height: 46px;
+  border: 1px solid rgba(250, 235, 169, 0.62);
+  background: rgba(86, 112, 76, 0.82);
+  box-shadow: inset 0 0 12px rgba(251, 232, 155, 0.15), 0 3px 12px rgba(0, 0, 0, 0.34);
+  transform: translate(-50%, -50%);
+}
+
+.touch-pause-button {
+  position: absolute;
+  top: calc(env(safe-area-inset-top, 0px) + 14px);
+  right: calc(env(safe-area-inset-right, 0px) + 16px);
+  width: 50px;
+  height: 50px;
+  padding: 0;
+  border: 1px solid rgba(239, 228, 174, 0.32);
+  border-radius: 50%;
+  background: rgba(15, 30, 24, 0.66);
+  box-shadow: 0 5px 18px rgba(0, 0, 0, 0.22);
+  color: var(--ink);
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.touch-pause-button span,
+.touch-pause-button span::after {
+  position: absolute;
+  top: 15px;
+  width: 4px;
+  height: 18px;
+  border-radius: 2px;
+  background: rgba(245, 237, 198, 0.88);
+  content: '';
+}
+
+.touch-pause-button span {
+  left: 18px;
+}
+
+.touch-pause-button span::after {
+  top: 0;
+  left: 10px;
+}
+
+.touch-pause-button:active {
+  border-color: rgba(239, 211, 139, 0.68);
+  background: rgba(52, 76, 61, 0.86);
+}
+
+.touch-sprint-button {
+  position: absolute;
+  right: calc(env(safe-area-inset-right, 0px) + 18px);
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 18px);
+  width: 70px;
+  height: 70px;
+  padding: 0;
+  border: 1px solid rgba(239, 211, 139, 0.5);
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 40% 35%, rgba(156, 169, 104, 0.34), transparent 46%),
+    rgba(24, 45, 35, 0.78);
+  box-shadow: inset 0 0 18px rgba(226, 202, 123, 0.08), 0 5px 18px rgba(0, 0, 0, 0.24);
+  color: rgba(250, 237, 190, 0.94);
+  font-family: system-ui, sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.touch-sprint-button span {
+  display: block;
+  margin-left: 0.12em;
+}
+
+.touch-sprint-button.is-active {
+  border-color: rgba(255, 230, 143, 0.92);
+  background:
+    radial-gradient(circle at 40% 35%, rgba(218, 190, 99, 0.42), transparent 50%),
+    rgba(74, 92, 58, 0.92);
+  box-shadow: inset 0 0 20px rgba(255, 229, 144, 0.17), 0 3px 12px rgba(0, 0, 0, 0.28);
+  transform: scale(0.96);
+}
+
+.orientation-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding:
+    calc(env(safe-area-inset-top, 0px) + 24px)
+    calc(env(safe-area-inset-right, 0px) + 24px)
+    calc(env(safe-area-inset-bottom, 0px) + 24px)
+    calc(env(safe-area-inset-left, 0px) + 24px);
+  background:
+    radial-gradient(circle at 50% 46%, rgba(89, 116, 78, 0.34), transparent 38%),
+    linear-gradient(155deg, #1d3329, #0a1814);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.orientation-overlay.is-visible {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+
+.orientation-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  color: var(--ink);
+  text-align: center;
+}
+
+.orientation-card strong {
+  margin-top: 24px;
+  font-size: clamp(24px, 7vw, 36px);
+  font-weight: 400;
+  letter-spacing: 0.16em;
+}
+
+.orientation-card p {
+  margin: 10px 0 0;
+  color: var(--ink-muted);
+  font-family: system-ui, sans-serif;
+  font-size: 13px;
+  letter-spacing: 0.16em;
+}
+
+.phone-outline {
+  position: relative;
+  width: 46px;
+  height: 76px;
+  border: 2px solid rgba(239, 211, 139, 0.78);
+  border-radius: 9px;
+  transform: rotate(90deg);
+}
+
+.phone-outline::before {
+  position: absolute;
+  top: 6px;
+  left: 50%;
+  width: 10px;
+  height: 2px;
+  border-radius: 2px;
+  background: rgba(239, 211, 139, 0.62);
+  content: '';
+  transform: translateX(-50%);
+}
+
+.phone-outline span {
+  position: absolute;
+  right: -17px;
+  top: 50%;
+  width: 9px;
+  height: 9px;
+  border-top: 2px solid rgba(239, 211, 139, 0.7);
+  border-right: 2px solid rgba(239, 211, 139, 0.7);
+  transform: translateY(-50%) rotate(45deg);
+}
+
+.safe-area-probe {
+  position: absolute;
+  inset: 0;
+  padding:
+    env(safe-area-inset-top, 0px)
+    env(safe-area-inset-right, 0px)
+    env(safe-area-inset-bottom, 0px)
+    env(safe-area-inset-left, 0px);
+  visibility: hidden;
+  pointer-events: none;
+}
+
+html[data-input-mode="touch"] #app {
+  display: block;
+}
+
+html[data-input-mode="touch"] #game-stage {
+  width: 100vw;
+  height: 100vh;
+  height: 100dvh;
+  max-height: none;
+  aspect-ratio: auto;
+  box-shadow: none;
+}
+
+#ui-root[data-input-mode="touch"][data-orientation="landscape"][data-phase="playing"] .touch-controls {
+  opacity: 1;
+  visibility: visible;
+}
+
+#ui-root[data-input-mode="touch"][data-orientation="landscape"][data-phase="playing"] .joystick-zone,
+#ui-root[data-input-mode="touch"][data-orientation="landscape"][data-phase="playing"] .touch-pause-button,
+#ui-root[data-input-mode="touch"][data-orientation="landscape"][data-phase="playing"] .touch-sprint-button {
+  pointer-events: auto;
+}
+
+#ui-root[data-input-mode="touch"] .area-chip {
+  top: calc(env(safe-area-inset-top, 0px) + 12px);
+  left: calc(env(safe-area-inset-left, 0px) + 14px);
+  padding: 7px 11px 6px;
+}
+
+#ui-root[data-input-mode="touch"] .area-chip strong {
+  font-size: clamp(14px, 3.6vh, 20px);
+}
+
+#ui-root[data-input-mode="touch"] .area-chip span {
+  font-size: clamp(8px, 2.1vh, 11px);
+}
+
+#ui-root[data-input-mode="touch"] .controls-hint {
+  right: calc(env(safe-area-inset-right, 0px) + 14px);
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 98px);
+  padding: 7px 10px;
+  font-size: clamp(9px, 2.4vh, 12px);
+}
+
+#ui-root[data-input-mode="touch"] .desktop-controls-copy {
+  display: none;
+}
+
+#ui-root[data-input-mode="touch"] .touch-controls-copy {
+  display: inline;
+}
+
+#ui-root[data-input-mode="touch"] .pause-card {
+  min-width: min(340px, 70%);
+  max-height: calc(100% - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 20px);
+  padding: 18px 28px 16px;
+}
+
+#ui-root[data-input-mode="touch"] .pause-actions {
+  gap: 7px;
+  margin-top: 16px;
+}
+
+#ui-root[data-input-mode="touch"] .game-button {
+  min-width: 180px;
+  min-height: 44px;
+  padding: 9px 22px;
+}
+
+#ui-root[data-input-mode="touch"] .pause-note {
+  display: none;
+}
+
+@media (max-height: 430px) {
+  #ui-root[data-input-mode="touch"] .pause-card h2 {
+    font-size: 30px;
+  }
+
+  #ui-root[data-input-mode="touch"] .eyebrow {
+    margin-bottom: 7px;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
