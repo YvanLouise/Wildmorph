@@ -1,0 +1,32 @@
+import { spawn } from 'node:child_process';
+import { createRequire } from 'node:module';
+import { createServer } from 'vite';
+
+const require = createRequire(import.meta.url);
+const playwrightCli = require.resolve('@playwright/test/cli');
+const server = await createServer({
+  logLevel: 'error',
+  server: {
+    host: '127.0.0.1',
+    port: 4397,
+    strictPort: true,
+  },
+});
+
+let exitCode = 1;
+try {
+  await server.listen();
+  exitCode = await new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [playwrightCli, 'test'], {
+      cwd: process.cwd(),
+      env: process.env,
+      stdio: 'inherit',
+    });
+    child.once('error', reject);
+    child.once('exit', (code) => resolve(code ?? 1));
+  });
+} finally {
+  await server.close();
+}
+
+process.exitCode = exitCode;
