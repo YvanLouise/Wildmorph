@@ -23,46 +23,65 @@ export const DEFAULT_WILDLIFE_CONFIG: WildlifeGlobalConfig = {
   dangerSpawnClearRadius: 900,
   species: {
     'white-rabbit': {
-      enabled: true, role: 'prey', spawnChance: 0.18, groupMin: 2, groupMax: 4,
+      enabled: true, eatsBerries: true, eatsGrass: true, role: 'prey', spawnChance: 0.18, groupMin: 2, groupMax: 4, minSizeScale: 0.85, maxSizeScale: 1.15,
       preferredTerrains: ['grass', 'wet-grass'], walkSpeed: 70, fleeSpeed: 230, chaseSpeed: 70,
       detectionRadius: 230, giveUpRadius: 360, territoryRadius: 260,
-      alertDurationMs: 450, chaseDurationMs: 0, restDurationMs: 1500, cooldownMs: 2500,
+      reactionDelayMs: 160, alertDurationMs: 450, chaseDurationMs: 0, restDurationMs: 1500, cooldownMs: 2500,
     },
     'sika-deer': {
-      enabled: true, role: 'prey', spawnChance: 0.09, groupMin: 2, groupMax: 4,
+      enabled: true, eatsBerries: true, eatsGrass: true, role: 'prey', spawnChance: 0.09, groupMin: 2, groupMax: 4, minSizeScale: 0.85, maxSizeScale: 1.15,
       preferredTerrains: ['grass', 'wet-grass'], walkSpeed: 85, fleeSpeed: 220, chaseSpeed: 85,
       detectionRadius: 270, giveUpRadius: 430, territoryRadius: 360,
-      alertDurationMs: 600, chaseDurationMs: 0, restDurationMs: 1800, cooldownMs: 3000,
+      reactionDelayMs: 220, alertDurationMs: 600, chaseDurationMs: 0, restDurationMs: 1800, cooldownMs: 3000,
     },
     pig: {
-      enabled: true, role: 'forager', spawnChance: 0.08, groupMin: 2, groupMax: 3,
+      enabled: true, eatsBerries: true, eatsGrass: false, role: 'forager', spawnChance: 0.08, groupMin: 2, groupMax: 3, minSizeScale: 0.85, maxSizeScale: 1.15,
       preferredTerrains: ['grass', 'wet-grass', 'mud'], walkSpeed: 65, fleeSpeed: 165, chaseSpeed: 65,
       detectionRadius: 180, giveUpRadius: 320, territoryRadius: 300,
-      alertDurationMs: 750, chaseDurationMs: 0, restDurationMs: 1900, cooldownMs: 3000,
+      reactionDelayMs: 350, alertDurationMs: 750, chaseDurationMs: 0, restDurationMs: 1900, cooldownMs: 3000,
     },
     raccoon: {
-      enabled: true, role: 'forager', spawnChance: 0.1, groupMin: 1, groupMax: 2,
+      enabled: true, eatsBerries: true, eatsGrass: false, role: 'forager', spawnChance: 0.1, groupMin: 1, groupMax: 2, minSizeScale: 0.85, maxSizeScale: 1.15,
       preferredTerrains: ['wet-grass', 'grass'], walkSpeed: 60, fleeSpeed: 170, chaseSpeed: 60,
       detectionRadius: 190, giveUpRadius: 330, territoryRadius: 260,
-      alertDurationMs: 500, chaseDurationMs: 0, restDurationMs: 1700, cooldownMs: 2800,
+      reactionDelayMs: 280, alertDurationMs: 500, chaseDurationMs: 0, restDurationMs: 1700, cooldownMs: 2800,
     },
     'red-fox': {
-      enabled: true, role: 'mesopredator', spawnChance: 0.05, groupMin: 1, groupMax: 1,
+      enabled: true, eatsBerries: false, eatsGrass: false, role: 'mesopredator', spawnChance: 0.05, groupMin: 1, groupMax: 1, minSizeScale: 0.85, maxSizeScale: 1.15,
       preferredTerrains: ['grass', 'wet-grass'], walkSpeed: 80, fleeSpeed: 190, chaseSpeed: 205,
       detectionRadius: 280, giveUpRadius: 420, territoryRadius: 380,
-      alertDurationMs: 900, chaseDurationMs: 4500, restDurationMs: 1600, cooldownMs: 8000,
+      reactionDelayMs: 320, alertDurationMs: 900, chaseDurationMs: 4500, restDurationMs: 1600, cooldownMs: 8000,
     },
     tiger: {
-      enabled: true, role: 'predator', spawnChance: 0.018, groupMin: 1, groupMax: 1,
+      enabled: true, eatsBerries: false, eatsGrass: false, role: 'predator', spawnChance: 0.018, groupMin: 1, groupMax: 1, minSizeScale: 0.85, maxSizeScale: 1.15,
       preferredTerrains: ['grass', 'wet-grass'], walkSpeed: 75, fleeSpeed: 75, chaseSpeed: 225,
       detectionRadius: 280, giveUpRadius: 520, territoryRadius: 460,
-      alertDurationMs: 650, chaseDurationMs: 5500, restDurationMs: 2200, cooldownMs: 10000,
+      reactionDelayMs: 400, alertDurationMs: 650, chaseDurationMs: 5500, restDurationMs: 2200, cooldownMs: 10000,
     },
   },
 };
 
 export function cloneDefaultWildlifeConfig(): WildlifeGlobalConfig {
   return structuredClone(DEFAULT_WILDLIFE_CONFIG);
+}
+
+export function normalizeWildlifeConfig(value: unknown): WildlifeGlobalConfig {
+  const record = value && typeof value === 'object' ? value as Record<string, unknown> : {};
+  const speciesRecord = record.species && typeof record.species === 'object'
+    ? record.species as Record<string, unknown>
+    : {};
+  const species = Object.fromEntries(WILDLIFE_SPECIES_IDS.map((id) => [
+    id,
+    {
+      ...structuredClone(DEFAULT_WILDLIFE_CONFIG.species[id]),
+      ...(speciesRecord[id] && typeof speciesRecord[id] === 'object' ? speciesRecord[id] : {}),
+    },
+  ])) as Record<WildlifeSpeciesId, WildlifeGlobalConfig['species'][WildlifeSpeciesId]>;
+  return {
+    ...structuredClone(DEFAULT_WILDLIFE_CONFIG),
+    ...record,
+    species,
+  } as WildlifeGlobalConfig;
 }
 
 export function isWildlifeSpeciesId(value: string): value is WildlifeSpeciesId {

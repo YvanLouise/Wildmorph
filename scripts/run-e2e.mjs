@@ -4,6 +4,7 @@ import { createServer } from 'vite';
 
 const require = createRequire(import.meta.url);
 const playwrightCli = require.resolve('@playwright/test/cli');
+process.env.WILDMORPH_DISABLE_DEFAULT_SYNC = '1';
 const server = await createServer({
   logLevel: 'error',
   server: {

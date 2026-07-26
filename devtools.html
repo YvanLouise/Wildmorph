@@ -39,15 +39,18 @@
           <div class="nav-heading">调试目录</div>
           <button class="nav-item is-active" type="button" data-section="characters"><span>01</span>角色档案</button>
           <button class="nav-item" type="button" data-section="player"><span>02</span>原型玩家</button>
-          <button class="nav-item" type="button" data-section="camera"><span>03</span>镜头</button>
-          <button class="nav-item" type="button" data-section="audio"><span>04</span>音频</button>
-          <button class="nav-item" type="button" data-section="input"><span>05</span>输入</button>
-          <button class="nav-item" type="button" data-section="procedural"><span>06</span>开放世界</button>
-          <button class="nav-item" type="button" data-section="assets"><span>07</span>图片素材</button>
-          <button class="nav-item" type="button" data-section="map"><span>08</span>地图编辑</button>
+          <button class="nav-item" type="button" data-section="survival"><span>03</span>生存消耗</button>
+          <button class="nav-item" type="button" data-section="dayNight"><span>04</span>昼夜循环</button>
+          <button class="nav-item" type="button" data-section="resources"><span>05</span>资源补给</button>
+          <button class="nav-item" type="button" data-section="camera"><span>06</span>镜头</button>
+          <button class="nav-item" type="button" data-section="audio"><span>07</span>音频</button>
+          <button class="nav-item" type="button" data-section="input"><span>08</span>输入</button>
+          <button class="nav-item" type="button" data-section="procedural"><span>09</span>开放世界</button>
+          <button class="nav-item" type="button" data-section="assets"><span>10</span>图片素材</button>
+          <button class="nav-item" type="button" data-section="map"><span>11</span>地图编辑</button>
           <div class="nav-note">
             <strong>工作方式</strong>
-            <p>调参台预览草稿。游戏只在保存并激活后，于刷新时读取参数。</p>
+            <p>有效的手动调整会自动写入源码默认值。游戏仍在保存并激活后，于刷新时读取当前预设。</p>
           </div>
         </nav>
 
@@ -90,6 +93,7 @@
         <div id="dirty-status" class="status-item">未修改</div>
         <div id="validation-status" class="status-item">配置有效</div>
         <div id="history-status" class="status-item">撤销 0 · 重做 0</div>
+        <div id="default-sync-status" class="status-item">源码默认值已载入</div>
         <details id="issue-details" class="issue-details">
           <summary>检查详情</summary>
           <div id="issue-list" class="issue-list"></div>

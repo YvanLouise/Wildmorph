@@ -1,5 +1,10 @@
 import Phaser from 'phaser';
 import { ASSET_KEYS } from '../../game/assets/manifest';
+import {
+  calculateCameraView,
+  type CameraViewMetrics,
+  type CameraWorldViewBounds,
+} from '../../game/camera/view';
 import type { ResolvedWorldAssets } from '../../game/assets/worldAssetLibrary';
 import type { GameConfig } from '../../game/config/GameConfig';
 import { touchInput } from '../../game/input/TouchInputState';
@@ -9,7 +14,7 @@ import {
   type DirectionalInput,
 } from '../../game/input/movement';
 import { gameStore } from '../../game/state/GameStore';
-import type { ColliderDefinition, PointDefinition, WorldLaunchRequest } from '../../game/types';
+import type { ColliderDefinition, PlayerForagingSnapshot, PointDefinition, WorldLaunchRequest } from '../../game/types';
 import { parseWorldSeed } from '../../game/world/seed';
 import { createWorldView, type TreeOccluder } from '../world/createWorldView';
 import { SeededWorldRuntime } from '../world/SeededWorldRuntime';
@@ -21,6 +26,14 @@ interface MovementKeys {
   left: Phaser.Input.Keyboard.Key;
   right: Phaser.Input.Keyboard.Key;
 }
+
+const IDLE_FORAGING: PlayerForagingSnapshot = {
+  active: false,
+  berryId: null,
+  remainingFood: 0,
+  maxFood: 0,
+  progress: 0,
+};
 
 export class WorldScene extends Phaser.Scene {
   static readonly KEY = 'world';
@@ -47,15 +60,20 @@ export class WorldScene extends Phaser.Scene {
   private nextFootstepAt = 0;
   private nextSnapshotAt = 0;
   private baseSpriteScale = 1;
-  private zoomIndex: number;
-  private baseCameraZoom = 1;
+  private viewIndex: number;
+  private cameraView: CameraViewMetrics;
 
   constructor(
     private readonly gameConfig: Readonly<GameConfig>,
     private readonly worldAssets: ResolvedWorldAssets,
   ) {
     super(WorldScene.KEY);
-    this.zoomIndex = gameConfig.camera.defaultZoomIndex;
+    this.viewIndex = gameConfig.camera.defaultViewIndex;
+    this.cameraView = calculateCameraView(
+      { width: 1280, height: 720 },
+      gameConfig.player.visualSize,
+      gameConfig.camera.viewHalfWidthBodyMultipliers[this.viewIndex],
+    );
   }
 
   setLaunchRequest(request: WorldLaunchRequest): void {
@@ -66,7 +84,7 @@ export class WorldScene extends Phaser.Scene {
     const layout = this.gameConfig.world;
     const seeded = this.launchRequest.mode === 'seeded';
     const spawn = seeded ? this.gameConfig.proceduralWorld.spawn : layout.spawn;
-    this.zoomIndex = this.gameConfig.camera.defaultZoomIndex;
+    this.viewIndex = this.gameConfig.camera.defaultViewIndex;
     if (seeded) {
       this.physics.world.setBounds(-1_000_000_000, -1_000_000_000, 2_000_000_000, 2_000_000_000);
       this.cameras.main.removeBounds();
@@ -95,13 +113,15 @@ export class WorldScene extends Phaser.Scene {
         this.worldAssets,
         this.gameConfig.characterProfiles,
         this.gameConfig.wildlife,
+        this.gameConfig.seededResources,
+        { width: this.gameConfig.player.bodyWidth, height: this.gameConfig.player.bodyHeight },
       );
       this.seededWorld.initialize();
     }
     this.createInput();
     this.createDebugGraphic();
 
-    this.applyCameraZoom(this.scale.gameSize.height);
+    this.applyCameraZoom(this.scale.gameSize.width, this.scale.gameSize.height);
     this.cameras.main.centerOn(spawn.x, spawn.y);
     this.cameras.main.startFollow(
       this.playerBody,
@@ -125,7 +145,9 @@ export class WorldScene extends Phaser.Scene {
   }
 
   update(time: number, delta: number): void {
-    const sprinting = Boolean(this.sprintKey?.isDown || touchInput.isSprinting());
+    gameStore.advanceDayNight(delta, this.gameConfig.dayNight);
+    const sprintRequested = Boolean(this.sprintKey?.isDown || touchInput.isSprinting());
+    const sprinting = sprintRequested && gameStore.canSprint();
     const speed = this.gameConfig.player.moveSpeed;
     const movement = resolveMovement(
       mergeDirectionalInput(this.getKeyboardInput(), touchInput.getDirectionalInput()),
@@ -133,10 +155,26 @@ export class WorldScene extends Phaser.Scene {
     );
 
     this.body.setVelocity(movement.x, movement.y);
-    this.seededWorld?.update(this.playerBody.x, this.playerBody.y, {
+    const seededUpdate = this.seededWorld?.update(this.playerBody.x, this.playerBody.y, {
       x: movement.x === 0 ? 0 : Math.sign(movement.x),
       y: movement.y === 0 ? 0 : Math.sign(movement.y),
-    }, delta);
+    }, delta, this.currentCameraBounds(), gameStore.getSnapshot().survival.food, !movement.moving);
+    if (seededUpdate?.playerFoodDelta) {
+      const survival = gameStore.getSnapshot().survival;
+      gameStore.updateSurvival({ food: survival.food + seededUpdate.playerFoodDelta });
+    }
+    gameStore.updateForaging(seededUpdate?.foraging ?? IDLE_FORAGING);
+    gameStore.advanceSurvival(
+      delta,
+      {
+        moving: movement.moving,
+        sprinting: sprintRequested,
+        waterRecoveryPerSecond: seededUpdate?.playerCanRecoverWater
+          ? this.gameConfig.seededResources.shallowWaterRecoveryPerSecond
+          : 0,
+      },
+      this.gameConfig.survival,
+    );
 
     if (movement.moving) {
       this.facingRadians = Math.atan2(movement.y, movement.x) - Math.PI / 2;
@@ -161,7 +199,7 @@ export class WorldScene extends Phaser.Scene {
     });
     gameStore.updateRuntime({
       fps: this.game.loop.actualFps,
-      cameraZoom: this.cameras.main.zoom,
+      ...this.cameraTelemetry(),
     });
     gameStore.updateWorld(this.seededWorld?.telemetry() ?? {
       mode: 'fixed',
@@ -173,6 +211,17 @@ export class WorldScene extends Phaser.Scene {
       lastGenerationMs: 0,
       objectCount: this.gameConfig.world.obstacles.length,
       colliderCount: this.gameConfig.world.obstacles.length,
+      resources: {
+        activeRipeBushes: 0,
+        activeEmptyBushes: 0,
+        modifiedBushes: 0,
+        activeConsumers: 0,
+        activeGrassPatches: 0,
+        grazingGrassPatches: 0,
+        grassConsumers: 0,
+        grassRefreshes: 0,
+        playerInShallowWater: false,
+      },
       wildlife: {
         activeAnimals: 0,
         sleepingAnimals: 0,
@@ -210,21 +259,26 @@ export class WorldScene extends Phaser.Scene {
   }
 
   cycleZoom(direction: -1 | 1): void {
-    const zoomLevels = this.gameConfig.camera.zoomLevels;
-    this.zoomIndex = Phaser.Math.Clamp(this.zoomIndex + direction, 0, zoomLevels.length - 1);
-    this.setZoom(zoomLevels[this.zoomIndex]);
+    const viewRanges = this.gameConfig.camera.viewHalfWidthBodyMultipliers;
+    this.viewIndex = Phaser.Math.Clamp(this.viewIndex + direction, 0, viewRanges.length - 1);
+    this.applyCameraZoom(this.scale.gameSize.width, this.scale.gameSize.height);
+    this.publishCameraSnapshot();
   }
 
-  setZoom(zoom: number): void {
-    const zoomLevels = this.gameConfig.camera.zoomLevels;
-    const nearestIndex = zoomLevels.reduce((bestIndex, candidate, index) => (
-      Math.abs(candidate - zoom) < Math.abs(zoomLevels[bestIndex] - zoom) ? index : bestIndex
+  setViewRange(multiplier: number): void {
+    const viewRanges = this.gameConfig.camera.viewHalfWidthBodyMultipliers;
+    const nearestIndex = viewRanges.reduce((bestIndex, candidate, index) => (
+      Math.abs(candidate - multiplier) < Math.abs(viewRanges[bestIndex] - multiplier) ? index : bestIndex
     ), 0);
-    this.zoomIndex = nearestIndex;
-    this.applyCameraZoom(this.scale.gameSize.height);
+    this.viewIndex = nearestIndex;
+    this.applyCameraZoom(this.scale.gameSize.width, this.scale.gameSize.height);
+    this.publishCameraSnapshot();
+  }
+
+  private publishCameraSnapshot(): void {
     gameStore.updateRuntime({
       fps: this.game.loop.actualFps,
-      cameraZoom: this.cameras.main.zoom,
+      ...this.cameraTelemetry(),
     });
     this.publishSnapshot();
   }
@@ -277,6 +331,24 @@ export class WorldScene extends Phaser.Scene {
 
   getWildlifeSnapshots() {
     return this.seededWorld?.getWildlifeSnapshots() ?? [];
+  }
+
+  getBerrySnapshots() {
+    return this.seededWorld?.getBerrySnapshots() ?? [];
+  }
+
+  getGrassSnapshots() {
+    return this.seededWorld?.getGrassSnapshots() ?? [];
+  }
+
+  teleportToBerry(id: string): void {
+    const berry = this.seededWorld?.getBerrySnapshots().find((candidate) => candidate.id === id);
+    if (berry) this.movePlayerTo({ x: berry.x, y: berry.y });
+  }
+
+  teleportToGrass(id: string): void {
+    const grass = this.seededWorld?.getGrassSnapshots().find((candidate) => candidate.id === id);
+    if (grass) this.movePlayerTo({ x: grass.x, y: grass.y });
   }
 
   teleportToWildlife(id: string): void {
@@ -356,16 +428,42 @@ export class WorldScene extends Phaser.Scene {
     };
   }
 
-  private readonly handleResize = (gameSize: { readonly height: number }): void => {
-    this.applyCameraZoom(gameSize.height);
+  private readonly handleResize = (gameSize: { readonly width: number; readonly height: number }): void => {
+    this.applyCameraZoom(gameSize.width, gameSize.height);
     this.publishSnapshot();
   };
 
-  private applyCameraZoom(viewportHeight: number): void {
-    this.baseCameraZoom = Math.max(viewportHeight, 1) / 720;
-    this.cameras.main.setZoom(
-      this.baseCameraZoom * this.gameConfig.camera.zoomLevels[this.zoomIndex],
+  private applyCameraZoom(viewportWidth: number, viewportHeight: number): void {
+    this.cameraView = calculateCameraView(
+      { width: viewportWidth, height: viewportHeight },
+      this.gameConfig.player.visualSize,
+      this.gameConfig.camera.viewHalfWidthBodyMultipliers[this.viewIndex],
+      this.launchRequest.mode === 'fixed'
+        ? { width: this.gameConfig.world.width, height: this.gameConfig.world.height }
+        : undefined,
     );
+    this.cameras.main.setZoom(this.cameraView.zoom);
+  }
+
+  private cameraTelemetry() {
+    return {
+      cameraZoom: this.cameraView.zoom,
+      cameraViewIndex: this.viewIndex,
+      cameraHalfWidthWorld: this.cameraView.halfWidthWorld,
+      cameraHalfWidthBodyMultiplier: this.cameraView.halfWidthBodyMultiplier,
+      cameraWorldWidth: this.cameraView.worldWidth,
+      cameraWorldHeight: this.cameraView.worldHeight,
+    };
+  }
+
+  private currentCameraBounds(): CameraWorldViewBounds {
+    const worldView = this.cameras.main.worldView;
+    return {
+      left: worldView.left,
+      top: worldView.top,
+      right: worldView.right,
+      bottom: worldView.bottom,
+    };
   }
 
   private createDebugGraphic(): void {

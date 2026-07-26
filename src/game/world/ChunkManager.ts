@@ -7,14 +7,36 @@ import type {
   WorldSeed,
   WorldAssetConfig,
   WildlifeGlobalConfig,
+  WildlifeBodySize,
+  WildlifeSpeciesId,
 } from '../types';
 import { chebyshevDistance, chunkKey, coordsInRadius } from './coordinates';
 import { ChunkCache } from './ChunkCache';
 import { generateChunk } from './generateChunk';
+import type { CameraWorldViewBounds } from '../camera/view';
+import type { SeededResourcesConfig } from '../resources/config';
 
 export interface ChunkDelta {
   readonly loaded: readonly GeneratedChunkData[];
   readonly unloaded: readonly ChunkKey[];
+}
+
+const MAX_ACTIVE_CHUNKS = 49;
+
+function coordsCoveringView(
+  bounds: CameraWorldViewBounds,
+  chunkSize: number,
+  marginChunks = 1,
+): ChunkCoord[] {
+  const minX = Math.floor(bounds.left / chunkSize) - marginChunks;
+  const maxX = Math.ceil(bounds.right / chunkSize) - 1 + marginChunks;
+  const minY = Math.floor(bounds.top / chunkSize) - marginChunks;
+  const maxY = Math.ceil(bounds.bottom / chunkSize) - 1 + marginChunks;
+  const result: ChunkCoord[] = [];
+  for (let y = minY; y <= maxY; y += 1) {
+    for (let x = minX; x <= maxX; x += 1) result.push({ x, y });
+  }
+  return result;
 }
 
 export class ChunkManager {
@@ -26,12 +48,15 @@ export class ChunkManager {
   private center: ChunkCoord = { x: Number.NaN, y: Number.NaN };
   private lastGenerationDuration = 0;
   private generationEpoch = 0;
+  private desiredSignature = '';
 
   constructor(
     seed: WorldSeed,
     private readonly config: ProceduralWorldConfig,
     private readonly worldAssets?: WorldAssetConfig,
     private readonly wildlife?: WildlifeGlobalConfig,
+    private readonly wildlifeBodySizes?: Readonly<Partial<Record<WildlifeSpeciesId, WildlifeBodySize>>>,
+    private readonly resourceConfig?: SeededResourcesConfig,
   ) {
     this.seed = seed;
     this.cache = new ChunkCache(config.cacheSize);
@@ -57,12 +82,26 @@ export class ChunkManager {
     return { loaded, unloaded: [] };
   }
 
-  update(center: ChunkCoord, heading: TouchVector): ChunkDelta {
+  update(center: ChunkCoord, heading: TouchVector, viewBounds?: CameraWorldViewBounds): ChunkDelta {
     const unloaded: ChunkKey[] = [];
-    if (center.x === this.center.x && center.y === this.center.y) {
+    const centerChanged = center.x !== this.center.x || center.y !== this.center.y;
+    this.center = { ...center };
+    const desiredByKey = new Map<ChunkKey, ChunkCoord>();
+    coordsInRadius(center, this.config.loadRadius).forEach((coord) => desiredByKey.set(chunkKey(coord), coord));
+    if (viewBounds) {
+      coordsCoveringView(viewBounds, this.config.tileSize * this.config.chunkTiles)
+        .forEach((coord) => desiredByKey.set(chunkKey(coord), coord));
+    }
+    const desired = this.prioritize([...desiredByKey.values()], heading).slice(0, MAX_ACTIVE_CHUNKS);
+    const desiredKeys = new Set(desired.map(chunkKey));
+    const signature = [...desiredKeys].sort().join('|');
+    if (!centerChanged && signature === this.desiredSignature) {
       return { loaded: [], unloaded };
     }
-    this.center = { ...center };
+    this.desiredSignature = signature;
+
+    this.queue = this.queue.filter((coord) => desiredKeys.has(chunkKey(coord)));
+    this.queued = new Set(this.queue.map(chunkKey));
 
     for (const [key, chunk] of this.active) {
       if (chebyshevDistance(chunk.coord, center) > this.config.unloadRadius) {
@@ -72,7 +111,7 @@ export class ChunkManager {
       }
     }
 
-    const missing = coordsInRadius(center, this.config.loadRadius)
+    const missing = desired
       .filter((coord) => {
         const key = chunkKey(coord);
         return !this.active.has(key) && !this.queued.has(key);
@@ -110,6 +149,7 @@ export class ChunkManager {
     this.queue = [];
     this.queued.clear();
     this.center = { x: Number.NaN, y: Number.NaN };
+    this.desiredSignature = '';
     return { loaded: [], unloaded };
   }
 
@@ -122,6 +162,7 @@ export class ChunkManager {
     this.queue = [];
     this.queued.clear();
     this.center = { x: Number.NaN, y: Number.NaN };
+    this.desiredSignature = '';
     const initialized = this.initialize(center);
     return { loaded: initialized.loaded, unloaded };
   }
@@ -138,6 +179,7 @@ export class ChunkManager {
     this.queue = [];
     this.queued.clear();
     this.generationEpoch += 1;
+    this.desiredSignature = '';
     return keys;
   }
 
@@ -146,7 +188,15 @@ export class ChunkManager {
     const cached = this.cache.get(key);
     if (cached) return cached;
     const started = performance.now();
-    const generated = generateChunk(this.seed, this.config, coord, this.worldAssets, this.wildlife);
+    const generated = generateChunk(
+      this.seed,
+      this.config,
+      coord,
+      this.worldAssets,
+      this.wildlife,
+      this.wildlifeBodySizes,
+      this.resourceConfig,
+    );
     this.lastGenerationDuration = performance.now() - started;
     return generated;
   }

@@ -20,6 +20,43 @@ async function startFixedWorld(page: Page): Promise<void> {
   await expect(page.locator('#ui-root')).toHaveAttribute('data-phase', 'playing');
 }
 
+async function startSeededWorld(page: Page): Promise<void> {
+  await page.locator('#start-button').click();
+  await expect(page.locator('#world-select-screen')).toHaveClass(/is-visible/);
+  await page.locator('#title-seed-input').fill('TY-7K3F-29QX');
+  await page.locator('#seeded-world-button').click();
+  await expect(page.locator('#ui-root')).toHaveAttribute('data-phase', 'playing');
+}
+
+async function installFastDayNightPreset(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const config = structuredClone(window.__TUYE_DEBUG__!.getConfig()) as unknown as Record<string, unknown>;
+    config.dayNight = {
+      dawnDurationMinutes: 0.02,
+      dayDurationMinutes: 0.02,
+      duskDurationMinutes: 0.02,
+      nightDurationMinutes: 0.02,
+      nightDarkness: 0.6,
+    };
+    const preset = {
+      id: 'mobile-day-night',
+      name: 'Mobile day and night',
+      updatedAt: new Date(0).toISOString(),
+      config,
+    };
+    localStorage.setItem('wildmorph.dev-presets.v1', JSON.stringify({
+      schemaVersion: config.schemaVersion,
+      activePresetId: preset.id,
+      presets: [preset],
+    }));
+  });
+  await page.reload();
+  await expect(page.locator('#start-button')).toBeEnabled();
+  if (await page.locator('#mobile-fullscreen-prompt').evaluate((element) => element.classList.contains('is-visible'))) {
+    await page.locator('#skip-fullscreen-button').click();
+  }
+}
+
 test.beforeEach(async ({ page }, testInfo) => {
   await page.setViewportSize(
     testInfo.title === rotatedLaunchTest
@@ -42,6 +79,12 @@ test(rotatedLaunchTest, async ({ page }, testInfo) => {
   await expect(page.locator('#orientation-overlay')).not.toHaveClass(/is-visible/);
   await startFixedWorld(page);
   await expectCanvasAspectMatchesDisplay(page);
+  const halfWidth = await page.evaluate(() => {
+    const config = window.__TUYE_DEBUG__!.getConfig();
+    return config.player.visualSize * config.camera.viewHalfWidthBodyMultipliers[config.camera.defaultViewIndex];
+  });
+  await expect.poll(() => page.evaluate(() => window.__TUYE_DEBUG__?.getSnapshot().runtime.cameraHalfWidthWorld)).toBeCloseTo(halfWidth, 1);
+  await expect.poll(() => page.evaluate(() => window.__TUYE_DEBUG__?.getSnapshot().runtime.cameraWorldHeight)).toBeCloseTo(390 / (844 / (halfWidth * 2)), 0);
   await page.screenshot({ path: testInfo.outputPath('mobile-rotate-before-launch.png') });
 });
 
@@ -98,6 +141,7 @@ test('adapts the title to landscape and gates portrait play', async ({ page }) =
 
 test('moves with the floating joystick and pauses from touch UI', async ({ page }) => {
   await startFixedWorld(page);
+  const playerConfig = await page.evaluate(() => window.__TUYE_DEBUG__!.getConfig().player);
   await expect(page.locator('#touch-pause-button')).toBeVisible();
   await expect(page.locator('#touch-sprint-button')).toBeVisible();
 
@@ -110,7 +154,7 @@ test('moves with the floating joystick and pauses from touch UI', async ({ page 
   await page.mouse.move(startX + 80, startY);
   await expect.poll(async () => page.evaluate(() => (
     window.__TUYE_DEBUG__?.getSnapshot().player.velocityX
-  ))).toBe(200);
+  ))).toBe(playerConfig.moveSpeed);
   await page.locator('#touch-sprint-button').dispatchEvent('pointerdown', {
     pointerId: 42,
     pointerType: 'touch',
@@ -118,14 +162,20 @@ test('moves with the floating joystick and pauses from touch UI', async ({ page 
   await expect(page.locator('#touch-sprint-button')).toHaveAttribute('aria-pressed', 'true');
   await expect.poll(async () => page.evaluate(() => (
     window.__TUYE_DEBUG__?.getSnapshot().player.velocityX
-  ))).toBe(300);
+  ))).toBe(playerConfig.moveSpeed * playerConfig.sprintMultiplier);
+  const beforeSprintSurvival = await page.evaluate(() => window.__TUYE_DEBUG__!.getSnapshot().survival);
+  await page.waitForTimeout(1600);
+  const afterSprintSurvival = await page.evaluate(() => window.__TUYE_DEBUG__!.getSnapshot().survival);
+  expect(beforeSprintSurvival.food - afterSprintSurvival.food).toBeGreaterThan(0.65);
+  expect(beforeSprintSurvival.water - afterSprintSurvival.water).toBeGreaterThan(1);
+  expect(beforeSprintSurvival.stamina - afterSprintSurvival.stamina).toBeGreaterThan(14);
   await page.locator('#touch-sprint-button').dispatchEvent('pointerup', {
     pointerId: 42,
     pointerType: 'touch',
   });
   await expect.poll(async () => page.evaluate(() => (
     window.__TUYE_DEBUG__?.getSnapshot().player.velocityX
-  ))).toBe(200);
+  ))).toBe(playerConfig.moveSpeed);
   await page.waitForTimeout(250);
   const movedX = await page.evaluate(() => window.__TUYE_DEBUG__?.getSnapshot().player.x ?? 0);
   expect(movedX).toBeGreaterThan(1240);
@@ -138,6 +188,53 @@ test('moves with the floating joystick and pauses from touch UI', async ({ page 
   await page.locator('#touch-pause-button').click();
   await expect(page.locator('#ui-root')).toHaveAttribute('data-phase', 'paused');
   await expect(page.locator('#joystick-zone')).not.toBeVisible();
+});
+
+test('shows berry foraging progress clear of mobile action controls', async ({ page }, testInfo) => {
+  await startSeededWorld(page);
+  const berry = await page.evaluate(() => {
+    for (let y = -4; y <= 4; y += 1) {
+      for (let x = -4; x <= 4; x += 1) {
+        const target = window.__TUYE_DEBUG__?.getChunkData(x, y)?.berryBushes[0];
+        if (target) return target;
+      }
+    }
+    return undefined;
+  });
+  expect(berry).toBeDefined();
+  if (!berry) return;
+
+  await page.evaluate(() => window.__TUYE_DEBUG__?.setSurvival({ food: 0 }));
+  await page.evaluate(({ x, y }) => window.__TUYE_DEBUG__?.teleportToWorld(x, y), berry);
+  await expect(page.locator('#foraging-progress')).toHaveClass(/is-visible/);
+  const progress = await page.locator('#foraging-progress').boundingBox();
+  const sprint = await page.locator('#touch-sprint-button').boundingBox();
+  expect(progress).not.toBeNull();
+  expect(sprint).not.toBeNull();
+  expect(progress!.x + progress!.width).toBeLessThan(sprint!.x);
+  await page.screenshot({ path: testInfo.outputPath('mobile-berry-foraging.png') });
+});
+
+test('keeps the day and night HUD readable above the mobile night overlay', async ({ page }, testInfo) => {
+  await installFastDayNightPreset(page);
+  await startFixedWorld(page);
+  await expect.poll(() => page.evaluate(() => window.__TUYE_DEBUG__!.getSnapshot().dayNight.phase), {
+    timeout: 4500,
+  }).toBe('night');
+
+  await expect(page.locator('#day-night-hud')).toBeVisible();
+  await expect(page.locator('#day-night-phase')).toHaveText('夜晚');
+  await expect(page.locator('#day-night-time')).toHaveText(/^((19|2[0-3]|0[0-4]):)/);
+  await expect.poll(() => page.locator('#day-night-overlay').evaluate(
+    (element) => Number(getComputedStyle(element).opacity),
+  )).toBeCloseTo(0.6, 1);
+  expect(await page.locator('#day-night-overlay').evaluate((element) => getComputedStyle(element).pointerEvents))
+    .toBe('none');
+
+  const timeHud = await page.locator('#day-night-hud').boundingBox();
+  const survivalHud = await page.locator('#survival-hud').boundingBox();
+  expect(timeHud!.x + timeHud!.width).toBeLessThan(survivalHud!.x);
+  await page.screenshot({ path: testInfo.outputPath('mobile-night-cycle.png') });
 });
 
 test('clears movement and stays paused after a portrait rotation', async ({ page }) => {

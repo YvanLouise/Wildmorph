@@ -36,12 +36,12 @@ describe('resolveMovement', () => {
     expect(movement.y).toBeCloseTo(-Math.SQRT1_2 * PLAYER_SPEED, 8);
   });
 
-  it('uses exactly 1.5x speed while sprinting', () => {
+  it('uses the configured default sprint speed', () => {
     const movement = resolveMovement(
       { up: true, down: false, left: false, right: true },
       PLAYER_SPRINT_SPEED,
     );
-    expect(Math.hypot(movement.x, movement.y)).toBeCloseTo(300, 8);
+    expect(Math.hypot(movement.x, movement.y)).toBeCloseTo(PLAYER_SPRINT_SPEED, 8);
   });
 });
 

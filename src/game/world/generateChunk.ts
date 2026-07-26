@@ -1,8 +1,10 @@
 import type {
   ChunkCoord,
+  GeneratedBerryBush,
   GeneratedChunkData,
   GeneratedDecoration,
   GeneratedDecorationKind,
+  GeneratedGrassPatch,
   GeneratedObstacle,
   GeneratedObstacleKind,
   ProceduralWorldConfig,
@@ -21,6 +23,10 @@ import { fractalNoise2D } from './noise';
 import { DeterministicRandom, hashUnit } from './random';
 import { hashText32 } from './seed';
 import { createInteriorTerrainMask } from './terrainGeometry';
+import {
+  DEFAULT_SEEDED_RESOURCES_CONFIG,
+  type SeededResourcesConfig,
+} from '../resources/config';
 
 export interface EnvironmentSample {
   readonly height: number;
@@ -217,12 +223,11 @@ function decorationKindFor(
   terrain: TerrainType,
   random: DeterministicRandom,
 ): GeneratedDecorationKind {
-  if (terrain === 'wet-grass') return random.next() < 0.32 ? 'reed' : random.next() < 0.62 ? 'bush' : 'grass';
+  if (terrain === 'wet-grass') return random.next() < 0.45 ? 'reed' : random.next() < 0.72 ? 'bush' : 'flower';
   const value = random.next();
-  if (value < 0.3) return 'grass';
-  if (value < 0.48) return 'bush';
-  if (value < 0.65) return 'flower';
-  if (value < 0.82) return 'leaf';
+  if (value < 0.3) return 'bush';
+  if (value < 0.55) return 'flower';
+  if (value < 0.8) return 'leaf';
   return 'pebble';
 }
 
@@ -273,6 +278,84 @@ function generateDecorations(
         rotation,
       });
     }
+  }
+  return result;
+}
+
+function generateBerryBushes(
+  seed: WorldSeed,
+  config: ProceduralWorldConfig,
+  resourceConfig: SeededResourcesConfig,
+  coord: ChunkCoord,
+  obstacles: readonly GeneratedObstacle[],
+): GeneratedBerryBush[] {
+  const chunkSize = config.tileSize * config.chunkTiles;
+  const origin = chunkOrigin(coord, chunkSize);
+  const countRandom = new DeterministicRandom(seed, 'berry-count', coord.x, coord.y);
+  const minimum = Math.ceil(resourceConfig.berryMinPerChunk);
+  const maximum = Math.floor(resourceConfig.berryMaxPerChunk);
+  const targetCount = countRandom.integer(minimum, Math.max(minimum, maximum));
+  const result: GeneratedBerryBush[] = [];
+  const candidateLimit = Math.max(12, targetCount * 8);
+
+  for (let candidateIndex = 0; candidateIndex < candidateLimit && result.length < targetCount; candidateIndex += 1) {
+    const positionRandom = new DeterministicRandom(seed, 'berry-position', coord.x, coord.y, candidateIndex);
+    const margin = 44;
+    const x = origin.x + margin + positionRandom.next() * (chunkSize - margin * 2);
+    const y = origin.y + margin + positionRandom.next() * (chunkSize - margin * 2);
+    const terrain = terrainAtWorld(seed, config, x, y);
+    if (terrain !== 'grass' && terrain !== 'wet-grass') continue;
+    if (obstacles.some((obstacle) => Math.hypot(obstacle.x - x, obstacle.y - y) < 64)) continue;
+    if (result.some((berry) => Math.hypot(berry.x - x, berry.y - y) < 96)) continue;
+
+    const yieldRandom = new DeterministicRandom(seed, 'berry-yield', coord.x, coord.y, candidateIndex);
+    result.push({
+      id: `${coord.x},${coord.y}:berry:${candidateIndex}`,
+      chunkKey: chunkKey(coord),
+      x,
+      y,
+      maxFood: yieldRandom.integer(
+        Math.ceil(resourceConfig.berryMinFood),
+        Math.max(Math.ceil(resourceConfig.berryMinFood), Math.floor(resourceConfig.berryMaxFood)),
+      ),
+    });
+  }
+  return result;
+}
+
+function generateGrassCandidates(
+  seed: WorldSeed,
+  config: ProceduralWorldConfig,
+  resourceConfig: SeededResourcesConfig,
+  coord: ChunkCoord,
+  obstacles: readonly GeneratedObstacle[],
+  berryBushes: readonly GeneratedBerryBush[],
+): GeneratedGrassPatch[] {
+  const maximumCandidates = Math.min(48, Math.max(0, Math.ceil(resourceConfig.grassMaxPerChunk) * 4));
+  if (maximumCandidates === 0) return [];
+  const chunkSize = config.tileSize * config.chunkTiles;
+  const origin = chunkOrigin(coord, chunkSize);
+  const result: GeneratedGrassPatch[] = [];
+  const candidateLimit = Math.max(192, maximumCandidates * 12);
+
+  for (let candidateIndex = 0; candidateIndex < candidateLimit && result.length < maximumCandidates; candidateIndex += 1) {
+    const random = new DeterministicRandom(seed, 'grass-resource', coord.x, coord.y, candidateIndex);
+    const margin = 28;
+    const x = origin.x + margin + random.next() * (chunkSize - margin * 2);
+    const y = origin.y + margin + random.next() * (chunkSize - margin * 2);
+    const terrain = terrainAtWorld(seed, config, x, y);
+    if ((terrain !== 'grass' && terrain !== 'wet-grass') || inSpawnClearing(x, y, config)) continue;
+    if (obstacles.some((obstacle) => Math.hypot(obstacle.x - x, obstacle.y - y) < 42)) continue;
+    if (berryBushes.some((berry) => Math.hypot(berry.x - x, berry.y - y) < 96)) continue;
+    if (result.some((grass) => Math.hypot(grass.x - x, grass.y - y) < 48)) continue;
+    result.push({
+      id: `${coord.x},${coord.y}:grass:${candidateIndex}`,
+      chunkKey: chunkKey(coord),
+      x,
+      y,
+      scale: random.between(0.68, 1.12),
+      rotation: random.between(-0.12, 0.12),
+    });
   }
   return result;
 }
@@ -337,13 +420,17 @@ function fingerprintChunk(
   terrain: readonly TerrainType[],
   obstacles: readonly GeneratedObstacle[],
   decorations: readonly GeneratedDecoration[],
+  berryBushes: readonly GeneratedBerryBush[],
+  grassCandidates: readonly GeneratedGrassPatch[],
   wildlifeSpawns: readonly import('../types').GeneratedWildlifeSpawn[],
 ): string {
   const serialized = [
     terrain.map((value) => TERRAIN_CODE[value]).join(''),
     ...obstacles.map((value) => `${value.id}:${value.variant}:${value.x.toFixed(3)}:${value.y.toFixed(3)}`),
     ...decorations.map((value) => `${value.id}:${value.kind}:${value.variant}`),
-    ...wildlifeSpawns.map((value) => `${value.id}:${value.x.toFixed(3)}:${value.y.toFixed(3)}`),
+    ...berryBushes.map((value) => `${value.id}:${value.x.toFixed(3)}:${value.y.toFixed(3)}:${value.maxFood}`),
+    ...grassCandidates.map((value) => `${value.id}:${value.x.toFixed(3)}:${value.y.toFixed(3)}`),
+    ...wildlifeSpawns.map((value) => `${value.id}:${value.x.toFixed(3)}:${value.y.toFixed(3)}:${value.sizeScale.toFixed(6)}`),
   ].join('|');
   return hashText32(serialized).toString(16).padStart(8, '0');
 }
@@ -354,6 +441,8 @@ export function generateChunk(
   coord: ChunkCoord,
   worldAssets: WorldAssetConfig = DEFAULT_WORLD_ASSET_CONFIG,
   wildlife: WildlifeGlobalConfig = DEFAULT_WILDLIFE_CONFIG,
+  wildlifeBodySizes: Readonly<Partial<Record<import('../types').WildlifeSpeciesId, import('../types').WildlifeBodySize>>> = {},
+  resourceConfig: SeededResourcesConfig = DEFAULT_SEEDED_RESOURCES_CONFIG,
 ): GeneratedChunkData {
   const chunkSize = config.tileSize * config.chunkTiles;
   const origin = chunkOrigin(coord, chunkSize);
@@ -383,6 +472,10 @@ export function generateChunk(
   ].sort((a, b) => a.id.localeCompare(b.id));
   const decorations = generateDecorations(seed, config, coord, obstacles, worldAssets)
     .sort((a, b) => a.id.localeCompare(b.id));
+  const berryBushes = generateBerryBushes(seed, config, resourceConfig, coord, obstacles)
+    .sort((a, b) => a.id.localeCompare(b.id));
+  const grassCandidates = generateGrassCandidates(seed, config, resourceConfig, coord, obstacles, berryBushes)
+    .sort((a, b) => a.id.localeCompare(b.id));
   const deepWater = createInteriorTerrainMask(
     terrain,
     config.chunkTiles,
@@ -401,6 +494,7 @@ export function generateChunk(
     coord,
     obstacles,
     (x, y) => terrainAtWorld(seed, config, x, y),
+    wildlifeBodySizes,
   );
 
   return {
@@ -414,8 +508,10 @@ export function generateChunk(
     deepWater,
     obstacles,
     decorations,
+    berryBushes,
+    grassCandidates,
     wildlifeSpawns,
     waterColliders: createWaterColliders(deepWater, coord, config),
-    fingerprint: fingerprintChunk(terrain, obstacles, decorations, wildlifeSpawns),
+    fingerprint: fingerprintChunk(terrain, obstacles, decorations, berryBushes, grassCandidates, wildlifeSpawns),
   };
 }

@@ -3,9 +3,11 @@ import { WILDLIFE_ASSET_KEYS } from '../../game/assets/manifest';
 import { worldTextureKey, type ResolvedWorldAssets } from '../../game/assets/worldAssetLibrary';
 import type { CharacterId, CharacterProfileConfig } from '../../game/config/characterProfiles';
 import type {
+  BerryBushRuntimeSnapshot,
   ChunkCoord,
   ChunkKey,
   GeneratedChunkData,
+  GrassPatchRuntimeSnapshot,
   GeneratedDecoration,
   GeneratedObstacle,
   ProceduralWorldConfig,
@@ -13,14 +15,26 @@ import type {
   WorldGenerationTelemetry,
   WorldSeed,
   WorldAssetSlotId,
+  WildlifeBodySize,
   WildlifeEntitySnapshot,
   WildlifeGlobalConfig,
 } from '../../game/types';
+import type { SeededResourcesConfig } from '../../game/resources/config';
+import {
+  BerryResourceSystem,
+  berryWorldSessions,
+} from '../../game/resources/BerryResourceSystem';
+import {
+  GrassResourceSystem,
+  grassWorldSessions,
+} from '../../game/resources/GrassResourceSystem';
 import { ChunkManager } from '../../game/world/ChunkManager';
 import { chunkOrigin, worldToChunk } from '../../game/world/coordinates';
 import { generateChunk } from '../../game/world/generateChunk';
 import { NavigationField } from '../../game/wildlife/NavigationField';
-import { WildlifeSystem } from '../../game/wildlife/WildlifeSystem';
+import { WildlifeSystem, WILDLIFE_MAX_TURN_RADIANS_PER_SECOND } from '../../game/wildlife/WildlifeSystem';
+import { WILDLIFE_SPECIES_IDS } from '../../game/wildlife/config';
+import type { CameraWorldViewBounds } from '../../game/camera/view';
 import {
   collectMaskRectangles,
   collectTerrainRectangles,
@@ -41,6 +55,15 @@ interface ChunkView {
   readonly colliders: Phaser.GameObjects.Zone[];
   readonly occluders: Occluder[];
   readonly terrainTextureKey: string;
+  readonly berryIds: readonly string[];
+  readonly grassIds: readonly string[];
+}
+
+export interface SeededWorldUpdate {
+  readonly playerFoodDelta: number;
+  readonly foraging: import('../../game/types').PlayerForagingSnapshot;
+  readonly playerInShallowWater: boolean;
+  readonly playerCanRecoverWater: boolean;
 }
 
 export interface SeededDebugLayers {
@@ -98,6 +121,8 @@ export class SeededWorldRuntime {
   private readonly views = new Map<ChunkKey, ChunkView>();
   private readonly collisionGroup: Phaser.Physics.Arcade.StaticGroup;
   private readonly playerCollider: Phaser.Physics.Arcade.Collider;
+  private readonly wildlifeCollisionGroup: Phaser.Physics.Arcade.Group;
+  private readonly wildlifePlayerCollider: Phaser.Physics.Arcade.Collider;
   private readonly terrainLayer: Phaser.GameObjects.Layer;
   private readonly entityLayer: Phaser.GameObjects.Layer;
   private objectCount = 0;
@@ -106,6 +131,20 @@ export class SeededWorldRuntime {
   private readonly navigation: NavigationField;
   private readonly wildlifeSystem: WildlifeSystem;
   private readonly wildlifeImages = new Map<string, Phaser.GameObjects.Image>();
+  private readonly wildlifeBodies = new Map<string, Phaser.GameObjects.Zone>();
+  private readonly berryImages = new Map<string, Phaser.GameObjects.Image>();
+  private readonly grassImages = new Map<string, Phaser.GameObjects.Image>();
+  private readonly wildlifeBodySizes: Readonly<Record<WildlifeEntitySnapshot['species'], WildlifeBodySize>>;
+  private berrySystem: BerryResourceSystem;
+  private grassSystem: GrassResourceSystem;
+  private playerInShallowWater = false;
+  private foraging: import('../../game/types').PlayerForagingSnapshot = {
+    active: false,
+    berryId: null,
+    remainingFood: 0,
+    maxFood: 0,
+    progress: 0,
+  };
 
   constructor(
     private readonly scene: Phaser.Scene,
@@ -116,13 +155,23 @@ export class SeededWorldRuntime {
     private readonly worldAssets: ResolvedWorldAssets,
     private readonly characterProfiles: Readonly<Record<CharacterId, CharacterProfileConfig>>,
     private readonly wildlifeConfig: WildlifeGlobalConfig,
+    private readonly resourceConfig: SeededResourcesConfig,
+    playerBodySize: WildlifeBodySize,
   ) {
     this.seed = seed;
-    this.manager = new ChunkManager(seed, config, worldAssets, wildlifeConfig);
-    this.navigation = new NavigationField(config, wildlifeConfig);
-    this.wildlifeSystem = new WildlifeSystem(wildlifeConfig, this.navigation);
+    this.wildlifeBodySizes = Object.fromEntries(WILDLIFE_SPECIES_IDS.map((species) => [species, {
+      width: characterProfiles[species].bodyWidth,
+      height: characterProfiles[species].bodyHeight,
+    }])) as Record<WildlifeEntitySnapshot['species'], WildlifeBodySize>;
+    this.manager = new ChunkManager(seed, config, worldAssets, wildlifeConfig, this.wildlifeBodySizes, resourceConfig);
+    this.navigation = new NavigationField(config, wildlifeConfig, this.wildlifeBodySizes);
+    this.wildlifeSystem = new WildlifeSystem(wildlifeConfig, this.navigation, this.wildlifeBodySizes, playerBodySize);
+    this.berrySystem = new BerryResourceSystem(resourceConfig, wildlifeConfig, berryWorldSessions.get(seed.text));
+    this.grassSystem = new GrassResourceSystem(seed.text, resourceConfig, wildlifeConfig, grassWorldSessions.get(seed.text));
     this.collisionGroup = scene.physics.add.staticGroup();
     this.playerCollider = scene.physics.add.collider(player, this.collisionGroup);
+    this.wildlifeCollisionGroup = scene.physics.add.group({ allowGravity: false, immovable: true });
+    this.wildlifePlayerCollider = scene.physics.add.collider(player, this.wildlifeCollisionGroup);
     this.terrainLayer = scene.add.layer().setDepth(-300);
     this.entityLayer = scene.add.layer().setDepth(0);
     this.entityLayer.add(playerSprite);
@@ -133,28 +182,64 @@ export class SeededWorldRuntime {
     const delta = this.manager.initialize(this.currentChunk);
     delta.loaded.forEach((chunk) => this.mount(chunk));
     this.wildlifeSystem.update(this.wildlifeConfig.simulationStepMs, this.config.spawn);
-    this.syncWildlifeImages();
+    this.syncWildlifeImages(this.wildlifeConfig.simulationStepMs);
   }
 
-  update(playerX: number, playerY: number, heading: TouchVector, deltaMs: number): void {
+  update(
+    playerX: number,
+    playerY: number,
+    heading: TouchVector,
+    deltaMs: number,
+    cameraBounds?: CameraWorldViewBounds,
+    playerFood = 100,
+    playerCanInteract = true,
+  ): SeededWorldUpdate {
     const chunk = worldToChunk({ x: playerX, y: playerY }, this.chunkSize);
-    const delta = this.manager.update(chunk, heading);
+    const delta = this.manager.update(chunk, heading, cameraBounds);
     delta.unloaded.forEach((key) => this.unmount(key));
     this.currentChunk = chunk;
     this.manager.processQueue().forEach((data) => this.mount(data));
-    this.wildlifeSystem.update(deltaMs, { x: playerX, y: playerY });
-    this.syncWildlifeImages();
+    const player = { x: playerX, y: playerY };
+    const animals = this.wildlifeSystem.snapshots();
+    const berryAssignments = this.berrySystem.assignWildlifeTargets(animals);
+    const grassAssignments = this.grassSystem.assignWildlifeTargets(animals, berryAssignments);
+    this.wildlifeSystem.update(deltaMs, player, { berries: berryAssignments, grass: grassAssignments });
+    const resourceUpdate = this.berrySystem.update(
+      deltaMs,
+      player,
+      playerFood,
+      this.wildlifeSystem.snapshots(),
+      playerCanInteract,
+    );
+    this.grassSystem.update(deltaMs, this.wildlifeSystem.snapshots());
+    this.foraging = resourceUpdate.foraging;
+    this.playerInShallowWater = this.isShallowWater(playerX, playerY);
+    this.syncBerryImages();
+    this.syncGrassImages();
+    this.syncWildlifeImages(deltaMs);
+    return {
+      playerFoodDelta: resourceUpdate.playerFoodDelta,
+      foraging: resourceUpdate.foraging,
+      playerInShallowWater: this.playerInShallowWater,
+      playerCanRecoverWater: playerCanInteract && this.playerInShallowWater,
+    };
   }
 
   resetSeed(seed: WorldSeed): void {
     const delta = this.manager.reset(seed);
     delta.unloaded.forEach((key) => this.unmount(key));
     this.wildlifeSystem.clear();
+    this.berrySystem.clearActive();
+    this.grassSystem.clearActive();
     this.seed = seed;
+    berryWorldSessions.reset(seed.text);
+    grassWorldSessions.reset(seed.text);
+    this.berrySystem = new BerryResourceSystem(this.resourceConfig, this.wildlifeConfig, berryWorldSessions.get(seed.text));
+    this.grassSystem = new GrassResourceSystem(seed.text, this.resourceConfig, this.wildlifeConfig, grassWorldSessions.get(seed.text));
     this.currentChunk = worldToChunk(this.config.spawn, this.chunkSize);
     this.manager.initialize(this.currentChunk).loaded.forEach((chunk) => this.mount(chunk));
     this.wildlifeSystem.update(this.wildlifeConfig.simulationStepMs, this.config.spawn);
-    this.syncWildlifeImages();
+    this.syncWildlifeImages(this.wildlifeConfig.simulationStepMs);
   }
 
   refresh(): void {
@@ -163,20 +248,29 @@ export class SeededWorldRuntime {
     this.wildlifeSystem.clear();
     delta.loaded.forEach((chunk) => this.mount(chunk));
     this.wildlifeSystem.update(this.wildlifeConfig.simulationStepMs, this.config.spawn);
-    this.syncWildlifeImages();
+    this.syncWildlifeImages(this.wildlifeConfig.simulationStepMs);
   }
 
   getFingerprint(x: number, y: number): string {
     return this.manager.getChunk({ x, y })?.fingerprint
-      ?? generateChunk(this.seed, this.config, { x, y }, this.worldAssets, this.wildlifeConfig).fingerprint;
+      ?? generateChunk(this.seed, this.config, { x, y }, this.worldAssets, this.wildlifeConfig, this.wildlifeBodySizes, this.resourceConfig).fingerprint;
   }
 
   getChunkData(x: number, y: number): Readonly<GeneratedChunkData> {
-    return this.manager.getChunk({ x, y }) ?? generateChunk(this.seed, this.config, { x, y }, this.worldAssets, this.wildlifeConfig);
+    return this.manager.getChunk({ x, y })
+      ?? generateChunk(this.seed, this.config, { x, y }, this.worldAssets, this.wildlifeConfig, this.wildlifeBodySizes, this.resourceConfig);
   }
 
   getWildlifeSnapshots(): readonly Readonly<WildlifeEntitySnapshot>[] {
     return this.wildlifeSystem.snapshots();
+  }
+
+  getBerrySnapshots(): readonly Readonly<BerryBushRuntimeSnapshot>[] {
+    return this.berrySystem.snapshots();
+  }
+
+  getGrassSnapshots(): readonly Readonly<GrassPatchRuntimeSnapshot>[] {
+    return this.grassSystem.snapshots();
   }
 
   updateOcclusion(playerX: number, playerY: number): void {
@@ -213,6 +307,14 @@ export class SeededWorldRuntime {
           graphics.strokeRect(body.x, body.y, body.width, body.height);
         }
       }
+      for (const animal of this.wildlifeSystem.snapshots()) {
+        graphics.strokeRect(
+          animal.x - animal.bodyWidth / 2,
+          animal.y - animal.bodyHeight / 2,
+          animal.bodyWidth,
+          animal.bodyHeight,
+        );
+      }
     }
     if (layers.chunks) {
       graphics.lineStyle(3, 0xf2cf72, 0.76);
@@ -241,10 +343,23 @@ export class SeededWorldRuntime {
         graphics.lineStyle(1, 0x8ccf9b, 0.28);
         graphics.strokeCircle(animal.x, animal.y, config.territoryRadius);
         graphics.lineStyle(2, 0xff8f70, 0.7);
-        graphics.strokeCircle(animal.x, animal.y, 12);
+        graphics.strokeRect(
+          animal.x - animal.bodyWidth / 2,
+          animal.y - animal.bodyHeight / 2,
+          animal.bodyWidth,
+          animal.bodyHeight,
+        );
+        if (animal.reactionRemainingMs > 0) {
+          graphics.lineStyle(2, 0xffe28a, 0.85);
+          graphics.strokeCircle(animal.x, animal.y, Math.max(animal.bodyWidth, animal.bodyHeight) * 0.7);
+        }
+        const resourceTarget = animal.targetId
+          ? this.berrySystem.snapshots().find(({ id }) => id === animal.targetId)
+            ?? this.grassSystem.snapshots().find(({ id }) => id === animal.targetId)
+          : undefined;
         const target = animal.targetId === 'player'
           ? this.player
-          : animal.targetId ? byId.get(animal.targetId) : undefined;
+          : animal.targetId ? byId.get(animal.targetId) ?? resourceTarget : undefined;
         if (target) {
           graphics.lineStyle(2, 0xff8f70, 0.7);
           graphics.lineBetween(animal.x, animal.y, target.x, target.y);
@@ -275,8 +390,12 @@ export class SeededWorldRuntime {
       activeChunks: this.manager.activeCount,
       cachedChunks: this.manager.cachedCount,
       lastGenerationMs: this.manager.lastGenerationMs,
-      objectCount: this.objectCount + this.wildlifeImages.size,
-      colliderCount: this.colliderCount,
+      objectCount: this.objectCount + this.wildlifeImages.size + this.wildlifeBodies.size + this.grassImages.size,
+      colliderCount: this.colliderCount + this.wildlifeBodies.size,
+      resources: {
+        ...this.berrySystem.telemetry(this.playerInShallowWater, this.foraging),
+        ...this.grassSystem.telemetry(),
+      },
       wildlife: this.wildlifeSystem.telemetry(),
     };
   }
@@ -284,10 +403,18 @@ export class SeededWorldRuntime {
   destroy(): void {
     this.manager.destroy().forEach((key) => this.unmount(key));
     this.playerCollider.destroy();
+    this.wildlifePlayerCollider.destroy();
     this.collisionGroup.destroy(true);
+    this.wildlifeCollisionGroup.destroy(true);
     this.terrainLayer.destroy();
     this.entityLayer.destroy();
     this.wildlifeImages.clear();
+    this.wildlifeBodies.clear();
+    this.berryImages.clear();
+    this.grassImages.forEach((image) => image.destroy());
+    this.grassImages.clear();
+    this.berrySystem.clearActive();
+    this.grassSystem.clearActive();
     this.wildlifeSystem.clear();
   }
 
@@ -328,7 +455,31 @@ export class SeededWorldRuntime {
       objects.push(image);
     }
 
-    this.views.set(data.key, { data, objects, colliders, occluders, terrainTextureKey });
+    this.berrySystem.mountChunk(data);
+    for (const berry of data.berryBushes) {
+      const snapshot = this.berrySystem.snapshots().find(({ id }) => id === berry.id);
+      const image = this.createBerryImage(snapshot ?? { ...berry, state: 'ripe', remainingFood: berry.maxFood, regrowRemainingMs: 0, wildlifeConsumerId: null, playerConsuming: false });
+      this.entityLayer.add(image);
+      this.berryImages.set(berry.id, image);
+      objects.push(image);
+    }
+
+    this.grassSystem.mountChunk(data);
+    for (const grass of this.grassSystem.snapshots().filter(({ chunkKey }) => chunkKey === data.key)) {
+      const image = this.createGrassImage(grass);
+      this.entityLayer.add(image);
+      this.grassImages.set(grass.id, image);
+    }
+
+    this.views.set(data.key, {
+      data,
+      objects,
+      colliders,
+      occluders,
+      terrainTextureKey,
+      berryIds: data.berryBushes.map(({ id }) => id),
+      grassIds: data.grassCandidates.map(({ id }) => id),
+    });
     this.wildlifeSystem.mountChunk(data);
     this.objectCount += objects.length;
     this.colliderCount += colliders.length;
@@ -548,6 +699,13 @@ export class SeededWorldRuntime {
     const view = this.views.get(key);
     if (!view) return;
     this.wildlifeSystem.unmountChunk(key);
+    this.berrySystem.unmountChunk(key);
+    this.grassSystem.unmountChunk(key);
+    view.berryIds.forEach((id) => this.berryImages.delete(id));
+    view.grassIds.forEach((id) => {
+      this.grassImages.get(id)?.destroy();
+      this.grassImages.delete(id);
+    });
     this.objectCount -= view.objects.length;
     this.colliderCount -= view.colliders.length;
     view.objects.forEach((object) => object.destroy());
@@ -556,7 +714,81 @@ export class SeededWorldRuntime {
     this.views.delete(key);
   }
 
-  private syncWildlifeImages(): void {
+  private isShallowWater(x: number, y: number): boolean {
+    const coord = worldToChunk({ x, y }, this.chunkSize);
+    const data = this.manager.getChunk(coord);
+    if (!data) return false;
+    const origin = chunkOrigin(coord, this.chunkSize);
+    const column = Math.floor((x - origin.x) / this.config.tileSize);
+    const row = Math.floor((y - origin.y) / this.config.tileSize);
+    if (column < 0 || row < 0 || column >= this.config.chunkTiles || row >= this.config.chunkTiles) return false;
+    const index = row * this.config.chunkTiles + column;
+    return data.terrain[index] === 'water' && data.deepWater[index] === false;
+  }
+
+  private syncBerryImages(): void {
+    for (const snapshot of this.berrySystem.snapshots()) {
+      const image = this.berryImages.get(snapshot.id);
+      if (!image) continue;
+      this.applyBerryBinding(image, snapshot);
+    }
+  }
+
+  private syncGrassImages(): void {
+    const snapshots = this.grassSystem.snapshots();
+    const active = new Set(snapshots.map(({ id }) => id));
+    for (const [id, image] of this.grassImages) {
+      if (active.has(id)) continue;
+      image.destroy();
+      this.grassImages.delete(id);
+    }
+    for (const snapshot of snapshots) {
+      let image = this.grassImages.get(snapshot.id);
+      if (!image) {
+        image = this.createGrassImage(snapshot);
+        this.entityLayer.add(image);
+        this.grassImages.set(snapshot.id, image);
+      }
+      image.setPosition(snapshot.x, snapshot.y).setRotation(snapshot.rotation).setDepth(snapshot.y - 0.5);
+    }
+  }
+
+  private createGrassImage(snapshot: GrassPatchRuntimeSnapshot): Phaser.GameObjects.Image {
+    const binding = this.worldAssets.slots['seeded.decoration.grass'];
+    const key = worldTextureKey(binding.sourceId);
+    const source = this.scene.textures.get(key).getSourceImage() as HTMLImageElement;
+    const scale = binding.displaySize / (binding.sizeMode === 'width' ? source.width : source.height) * snapshot.scale;
+    return this.scene.add.image(snapshot.x, snapshot.y, key)
+      .setOrigin(binding.anchorX, binding.anchorY)
+      .setScale(scale)
+      .setRotation(snapshot.rotation)
+      .setDepth(snapshot.y - 0.5)
+      .setName(`grass:${snapshot.id}`);
+  }
+
+  private createBerryImage(snapshot: BerryBushRuntimeSnapshot): Phaser.GameObjects.Image {
+    const image = this.scene.add.image(snapshot.x, snapshot.y, '__MISSING');
+    this.applyBerryBinding(image, snapshot);
+    return image.setName(`berry:${snapshot.id}`);
+  }
+
+  private applyBerryBinding(image: Phaser.GameObjects.Image, snapshot: BerryBushRuntimeSnapshot): void {
+    const slot = snapshot.state === 'ripe'
+      ? 'seeded.resource.berry-ripe'
+      : 'seeded.resource.berry-empty';
+    const binding = this.worldAssets.slots[slot];
+    const key = worldTextureKey(binding.sourceId);
+    if (image.texture.key !== key) image.setTexture(key);
+    const source = this.scene.textures.get(key).getSourceImage() as HTMLImageElement;
+    const scale = binding.displaySize / (binding.sizeMode === 'width' ? source.width : source.height);
+    image
+      .setPosition(snapshot.x, snapshot.y)
+      .setOrigin(binding.anchorX, binding.anchorY)
+      .setScale(scale)
+      .setDepth(snapshot.y - 0.25);
+  }
+
+  private syncWildlifeImages(deltaMs: number): void {
     const snapshots = this.wildlifeSystem.snapshots();
     const visible = new Set(snapshots.map(({ id }) => id));
     for (const [id, image] of this.wildlifeImages) {
@@ -564,28 +796,51 @@ export class SeededWorldRuntime {
       image.destroy();
       this.wildlifeImages.delete(id);
     }
+    for (const [id, zone] of this.wildlifeBodies) {
+      if (visible.has(id)) continue;
+      zone.destroy();
+      this.wildlifeBodies.delete(id);
+    }
     const alpha = this.wildlifeSystem.interpolationAlpha();
     for (const animal of snapshots) {
       let image = this.wildlifeImages.get(animal.id);
+      let collisionZone = this.wildlifeBodies.get(animal.id);
+      const targetRotation = animal.facingRadians
+        + Phaser.Math.DegToRad(this.characterProfiles[animal.species].facingOffsetDegrees);
       if (!image) {
         const key = WILDLIFE_ASSET_KEYS[animal.species];
         const profile = this.characterProfiles[animal.species];
         const source = this.scene.textures.get(key).getSourceImage() as HTMLImageElement;
-        const scale = profile.visualSize / Math.max(source.width, source.height);
+        const scale = profile.visualSize * animal.sizeScale / Math.max(source.width, source.height);
         image = this.scene.add.image(animal.x, animal.y, key)
           .setOrigin(profile.anchorX, profile.anchorY)
           .setScale(scale)
+          .setRotation(targetRotation)
           .setName(`wildlife:${animal.id}`);
         this.entityLayer.add(image);
         this.wildlifeImages.set(animal.id, image);
       }
+      if (!collisionZone) {
+        collisionZone = this.scene.add.zone(animal.x, animal.y, animal.bodyWidth, animal.bodyHeight).setOrigin(0.5);
+        this.scene.physics.add.existing(collisionZone);
+        this.wildlifeCollisionGroup.add(collisionZone);
+        const body = collisionZone.body as Phaser.Physics.Arcade.Body;
+        body.setAllowGravity(false).setImmovable(true).setSize(animal.bodyWidth, animal.bodyHeight);
+        body.pushable = false;
+        this.wildlifeBodies.set(animal.id, collisionZone);
+      }
+      const displayX = Phaser.Math.Linear(animal.previousX, animal.x, alpha);
+      const displayY = Phaser.Math.Linear(animal.previousY, animal.y, alpha);
       image
-        .setPosition(
-          Phaser.Math.Linear(animal.previousX, animal.x, alpha),
-          Phaser.Math.Linear(animal.previousY, animal.y, alpha),
-        )
-        .setRotation(animal.facingRadians + Phaser.Math.DegToRad(this.characterProfiles[animal.species].facingOffsetDegrees))
+        .setPosition(displayX, displayY)
+        .setRotation(Phaser.Math.Angle.RotateTo(
+          image.rotation,
+          targetRotation,
+          WILDLIFE_MAX_TURN_RADIANS_PER_SECOND * Math.max(0, deltaMs) / 1000,
+        ))
         .setDepth(animal.y + 0.2);
+      collisionZone.setPosition(displayX, displayY);
+      (collisionZone.body as Phaser.Physics.Arcade.Body).reset(displayX, displayY);
     }
   }
 

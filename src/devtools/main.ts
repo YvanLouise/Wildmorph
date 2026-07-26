@@ -44,8 +44,9 @@ import { DEFAULT_WILDLIFE_CONFIG, isWildlifeSpeciesId } from '../game/wildlife/c
 import { loadCharacterAssetCatalog, type CharacterAssetRecord } from './characterAssetLibrary';
 import { MapEditorScene } from './MapEditorScene';
 import { createObstacle, moveObstacleCollider, moveSelection, type MapSelection } from './mapOperations';
+import { calculateCameraView } from '../game/camera/view';
 
-type SectionId = 'characters' | 'player' | 'camera' | 'audio' | 'input' | 'procedural' | 'assets' | 'map';
+type SectionId = 'characters' | 'player' | 'survival' | 'dayNight' | 'resources' | 'camera' | 'audio' | 'input' | 'procedural' | 'assets' | 'map';
 
 interface NumberField {
   readonly path: string;
@@ -71,9 +72,66 @@ const SECTION_META: Record<Exclude<SectionId, 'characters' | 'map' | 'assets'>, 
       { path: 'player.moveSpeed', label: '基础移动速度', minimum: 50, maximum: 600, step: 10, unit: 'px/s', help: '未冲刺时角色每秒移动的逻辑像素。' },
       { path: 'player.sprintMultiplier', label: '冲刺倍率', minimum: 1, maximum: 3, step: 0.1, unit: '×', help: '按住 Shift 或触控冲刺时的速度倍率。' },
       { path: 'player.visualSize', label: '角色视觉尺寸', minimum: 16, maximum: 160, step: 1, unit: 'px', help: '角色图片最长边在世界中的显示尺寸。' },
+      { path: 'camera.viewHalfWidthBodyMultipliers.0', label: '远景单侧视野', minimum: 2, maximum: 30, step: 0.5, unit: '×角色', help: '玩家到屏幕左侧或右侧边缘可见的角色体型倍数。' },
+      { path: 'camera.viewHalfWidthBodyMultipliers.1', label: '默认单侧视野', minimum: 2, maximum: 30, step: 0.5, unit: '×角色', help: '初始镜头默认左右各可见10倍角色视觉尺寸。' },
+      { path: 'camera.viewHalfWidthBodyMultipliers.2', label: '近景单侧视野', minimum: 2, maximum: 30, step: 0.5, unit: '×角色', help: '近景档位的单侧可见体型倍数，必须小于默认档位。' },
+      { path: 'camera.defaultViewIndex', label: '初始视野档位', minimum: 0, maximum: 2, step: 1, help: '0、1、2分别对应远景、默认和近景。' },
       { path: 'player.bodyWidth', label: '碰撞体宽度', minimum: 4, maximum: 128, step: 1, unit: 'px', help: '角色 Arcade Physics 矩形碰撞体宽度。' },
       { path: 'player.bodyHeight', label: '碰撞体高度', minimum: 4, maximum: 128, step: 1, unit: 'px', help: '角色 Arcade Physics 矩形碰撞体高度。' },
       { path: 'player.footstepIntervalMs', label: '脚步间隔', minimum: 80, maximum: 1000, step: 5, unit: 'ms', help: '持续移动时触发合成脚步声的时间间隔。' },
+    ],
+  },
+  survival: {
+    eyebrow: 'SURVIVAL METABOLISM',
+    title: '生存消耗',
+    description: '控制食物、水源、耐力与资源耗尽后的生命损失；奔跑参数仅在角色移动并冲刺时生效。',
+    fields: [
+      { path: 'survival.foodDrainAmount', label: '食物消耗量', minimum: 0, maximum: 100, step: 0.1, unit: '点', help: '每个食物消耗周期扣除的数值。' },
+      { path: 'survival.foodDrainIntervalSeconds', label: '食物消耗周期', minimum: 0.1, maximum: 3600, step: 0.1, unit: '秒', help: '默认每 3 秒消耗一次设定的食物量。' },
+      { path: 'survival.waterDrainAmount', label: '水源消耗量', minimum: 0, maximum: 100, step: 0.1, unit: '点', help: '每个水源消耗周期扣除的数值。' },
+      { path: 'survival.waterDrainIntervalSeconds', label: '水源消耗周期', minimum: 0.1, maximum: 3600, step: 0.1, unit: '秒', help: '默认每 2 秒消耗一次设定的水源量。' },
+      { path: 'survival.sprintConsumptionMultiplier', label: '奔跑消耗倍率', minimum: 1, maximum: 5, step: 0.1, unit: '×', help: '角色实际移动并按住冲刺时，食物和水源消耗使用此倍率。' },
+      { path: 'survival.staminaDrainPerSecond', label: '冲刺耐力消耗', minimum: 0, maximum: 100, step: 0.1, unit: '点/秒', help: '角色实际移动并冲刺时，每秒扣除的耐力。' },
+      { path: 'survival.staminaRecoveryDelaySeconds', label: '耐力恢复延迟', minimum: 0, maximum: 3600, step: 0.1, unit: '秒', help: '停止实际冲刺后，需要等待多久才开始恢复耐力。' },
+      { path: 'survival.staminaRecoveryPerSecond', label: '耐力恢复速度', minimum: 0, maximum: 100, step: 0.1, unit: '点/秒', help: '恢复延迟结束后，每秒回复的耐力。' },
+      { path: 'survival.staminaStationaryRecoveryDelaySeconds', label: '静止恢复加速延迟', minimum: 0, maximum: 3600, step: 0.1, unit: '秒', help: '角色连续停止移动多久后，耐力恢复切换到加速速度。' },
+      { path: 'survival.staminaStationaryRecoveryPerSecond', label: '静止加速恢复速度', minimum: 0, maximum: 100, step: 0.1, unit: '点/秒', help: '角色达到连续静止时间后，每秒回复的耐力；默认 20 点/秒。' },
+      { path: 'survival.starvationDamagePerSecond', label: '饥饿生命损失', minimum: 0, maximum: 100, step: 0.1, unit: '点/秒', help: '食物为 0 后每秒扣除的生命值。' },
+      { path: 'survival.dehydrationDamagePerSecond', label: '脱水生命损失', minimum: 0, maximum: 100, step: 0.1, unit: '点/秒', help: '水源为 0 后每秒扣除的生命值；可与饥饿伤害叠加。' },
+    ],
+  },
+  dayNight: {
+    eyebrow: 'FIELD LIGHT CYCLE',
+    title: '昼夜循环',
+    description: '控制黎明、白天、黄昏和夜晚的持续时间，以及夜间画面的最大暗度。',
+    fields: [
+      { path: 'dayNight.dawnDurationMinutes', label: '黎明渐变', minimum: 0.01, maximum: 120, step: 0.01, unit: '分钟', help: '从深蓝夜色逐渐过渡到稳定白天的时长。' },
+      { path: 'dayNight.dayDurationMinutes', label: '稳定白天', minimum: 0.01, maximum: 120, step: 0.01, unit: '分钟', help: '不叠加环境暗色的稳定白天时长。' },
+      { path: 'dayNight.duskDurationMinutes', label: '黄昏渐变', minimum: 0.01, maximum: 120, step: 0.01, unit: '分钟', help: '从稳定白天经过暖紫色调进入夜晚的时长。' },
+      { path: 'dayNight.nightDurationMinutes', label: '稳定夜晚', minimum: 0.01, maximum: 120, step: 0.01, unit: '分钟', help: '保持最大夜间暗度的稳定夜晚时长。' },
+      { path: 'dayNight.nightDarkness', label: '夜间最大暗度', minimum: 0, maximum: 0.75, step: 0.01, help: '0 表示不变暗，0.75 为可调上限；默认 0.52。' },
+    ],
+  },
+  resources: {
+    eyebrow: 'SEEDED FORAGING',
+    title: '资源补给',
+    description: '控制种子世界中的浆果生成、持续采食、空丛再生与浅水补水。',
+    fields: [
+      { path: 'seededResources.berryMinPerChunk', label: '每区块浆果下限', minimum: 0, maximum: 8, step: 1, unit: '丛', help: '每个512×512区块尝试生成的浆果丛数量下限。' },
+      { path: 'seededResources.berryMaxPerChunk', label: '每区块浆果上限', minimum: 0, maximum: 8, step: 1, unit: '丛', help: '合法位置不足时实际数量可能更少。' },
+      { path: 'seededResources.berryMinFood', label: '单丛食物下限', minimum: 0, maximum: 100, step: 1, unit: '点', help: '每丛浆果的确定性随机食物量下限。' },
+      { path: 'seededResources.berryMaxFood', label: '单丛食物上限', minimum: 0, maximum: 100, step: 1, unit: '点', help: '每丛浆果的确定性随机食物量上限。' },
+      { path: 'seededResources.playerConsumeSeconds', label: '玩家采食耗时', minimum: 0.1, maximum: 60, step: 0.1, unit: '秒', help: '玩家独自吃完整丛浆果需要的时间。' },
+      { path: 'seededResources.wildlifeConsumeSeconds', label: 'AI采食耗时', minimum: 0.1, maximum: 60, step: 0.1, unit: '秒', help: '单只AI独自吃完整丛浆果需要的时间。' },
+      { path: 'seededResources.berryRegrowSeconds', label: '空丛再生时间', minimum: 1, maximum: 3600, step: 1, unit: '秒', help: '浆果归零后恢复成熟状态的游戏时间。' },
+      { path: 'seededResources.berryInteractionRadius', label: '采食交互半径', minimum: 24, maximum: 192, step: 1, unit: 'px', help: '玩家和AI进入该半径后可持续采食。' },
+      { path: 'seededResources.shallowWaterRecoveryPerSecond', label: '浅水补水速度', minimum: 0, maximum: 100, step: 0.1, unit: '点/秒', help: '与自然耗水并行计算，最终数值限制在0–100。' },
+      { path: 'seededResources.grassMaxPerChunk', label: '每区块可食草上限', minimum: 0, maximum: 32, step: 1, unit: '处', help: '每个512×512区块同时存在的可食草硬上限。' },
+      { path: 'seededResources.grassSeekChance', label: '动物主动觅草比例', minimum: 0, maximum: 1, step: 0.01, help: '每个刷新周期稳定选取开启食草的动物，避免目标随机抖动。' },
+      { path: 'seededResources.grassConsumeSeconds', label: '草被吃完耗时', minimum: 0.1, maximum: 300, step: 0.1, unit: '秒', help: '至少一只动物停留在草旁时累计的共享进食时间，多只不会加速。' },
+      { path: 'seededResources.grassRefreshSeconds', label: '草刷新周期', minimum: 1, maximum: 3600, step: 1, unit: '秒', help: '每到刷新边界，各区块会在新候选位置补足草。' },
+      { path: 'seededResources.grassInteractionRadius', label: '食草交互半径', minimum: 16, maximum: 192, step: 1, unit: 'px', help: '动物进入此范围后停止移动并开始进食。' },
+      { path: 'seededResources.grassMaxConsumersPerPatch', label: '单处聚集上限', minimum: 1, maximum: 8, step: 1, unit: '只', help: '允许同时聚集在同一处草旁的动物数量。' },
     ],
   },
   camera: {
@@ -81,10 +139,6 @@ const SECTION_META: Record<Exclude<SectionId, 'characters' | 'map' | 'assets'>, 
     title: '镜头参数',
     description: '调整三档开发缩放、默认档位和镜头跟随响应。',
     fields: [
-      { path: 'camera.zoomLevels.0', label: '缩放档位一', minimum: 0.25, maximum: 3, step: 0.05, unit: '×', help: '按 [ 键循环到的最远镜头倍率。' },
-      { path: 'camera.zoomLevels.1', label: '缩放档位二', minimum: 0.25, maximum: 3, step: 0.05, unit: '×', help: '默认的中间镜头倍率。' },
-      { path: 'camera.zoomLevels.2', label: '缩放档位三', minimum: 0.25, maximum: 3, step: 0.05, unit: '×', help: '按 ] 键循环到的最近镜头倍率。' },
-      { path: 'camera.defaultZoomIndex', label: '默认缩放档位', minimum: 0, maximum: 2, step: 1, help: '0、1、2 分别对应三档缩放参数。' },
       { path: 'camera.followLerp', label: '镜头跟随平滑度', minimum: 0, maximum: 1, step: 0.01, help: '数值越大，镜头跟随角色越紧。' },
       { path: 'camera.fadeInMs', label: '进入场景淡入', minimum: 0, maximum: 3000, step: 50, unit: 'ms', help: '从黑场进入世界画面的过渡时长。' },
     ],
@@ -192,6 +246,7 @@ const presetNameInput = requireElement<HTMLInputElement>('preset-name-input');
 const dirtyStatus = requireElement<HTMLElement>('dirty-status');
 const validationStatus = requireElement<HTMLElement>('validation-status');
 const historyStatus = requireElement<HTMLElement>('history-status');
+const defaultSyncStatus = requireElement<HTMLElement>('default-sync-status');
 const issueList = requireElement<HTMLElement>('issue-list');
 const assetUploadInput = requireElement<HTMLInputElement>('asset-upload-input');
 
@@ -210,6 +265,7 @@ let savedSnapshot = JSON.stringify(draft);
 let section: SectionId = 'characters';
 let selectedCharacterId: CharacterId = 'yellow-fox';
 let previewHeadingDegrees = 0;
+let previewSizeMode: 'min' | 'base' | 'max' = 'base';
 let selection: MapSelection | undefined;
 let history: GameConfig[] = [];
 let future: GameConfig[] = [];
@@ -235,6 +291,9 @@ let assetColliderDrag: {
 } | undefined;
 let transientMessage = '';
 let transientTimer: number | undefined;
+let defaultSyncTimer: number | undefined;
+let defaultSyncRevision = 0;
+let defaultSyncState: 'idle' | 'pending' | 'synced' | 'blocked' | 'error' = 'idle';
 
 function currentPreset(): DevPreset | undefined {
   return store.presets.find(({ id }) => id === selectedPresetId);
@@ -258,6 +317,49 @@ function showMessage(message: string): void {
   }, 2600);
 }
 
+function persistPresetStore(nextStore: DevPresetStore): boolean {
+  try {
+    savePresetStore(localStorage, nextStore);
+  } catch (error) {
+    const detail = error instanceof Error && error.message ? `：${error.message}` : '';
+    showMessage(`浏览器未能保存本地预设${detail}`);
+    return false;
+  }
+  store = nextStore;
+  return true;
+}
+
+function queueDefaultSync(delayMs = 350): void {
+  window.clearTimeout(defaultSyncTimer);
+  const revision = ++defaultSyncRevision;
+  if (validateGameConfig(draft).errors.length > 0) {
+    defaultSyncState = 'blocked';
+    renderStatus();
+    return;
+  }
+  defaultSyncState = 'pending';
+  renderStatus();
+  const config = cloneGameConfig(draft);
+  defaultSyncTimer = window.setTimeout(async () => {
+    try {
+      const response = await fetch('/__wildmorph/tuned-defaults', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ config }),
+      });
+      const result = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(result.error ?? '默认参数写入失败');
+      if (revision !== defaultSyncRevision) return;
+      defaultSyncState = 'synced';
+    } catch (error) {
+      if (revision !== defaultSyncRevision) return;
+      defaultSyncState = 'error';
+      transientMessage = error instanceof Error ? error.message : '默认参数写入失败';
+    }
+    renderStatus();
+  }, delayMs);
+}
+
 function commitConfig(next: GameConfig, redrawControls = true): void {
   if (isReadOnly() || JSON.stringify(next) === JSON.stringify(draft)) return;
   const assetRenderingChanged = JSON.stringify(next.worldAssets) !== JSON.stringify(draft.worldAssets)
@@ -266,6 +368,7 @@ function commitConfig(next: GameConfig, redrawControls = true): void {
   history = [...history.slice(-49), cloneGameConfig(draft)];
   future = [];
   draft = next;
+  queueDefaultSync();
   if (assetRenderingChanged) resetMapEditor();
   if (redrawControls) {
     syncDraftViews();
@@ -467,16 +570,22 @@ function wildlifeNumberInput(
 
 function wildlifeEditor(species: WildlifeSpeciesId): string {
   const profile = draft.wildlife.species[species];
+  const character = draft.characterProfiles[species];
   const terrains: readonly [TerrainType, string][] = [['grass', '草地'], ['wet-grass', '湿润草地'], ['mud', '泥地']];
   return `<section class="character-field-group wildlife-field-group">
     <div class="wildlife-field-heading"><h4>AI行为</h4><button id="restore-wildlife-profile-button" class="button" type="button" ${isReadOnly() ? 'disabled' : ''}>恢复AI默认值</button></div>
     <label class="character-field"><span><strong>启用种子世界生成</strong></span><input type="checkbox" data-wildlife-field="enabled" ${profile.enabled ? 'checked' : ''} ${isReadOnly() ? 'disabled' : ''}></label>
+    <label class="character-field"><span><strong>可食用浆果</strong></span><input type="checkbox" data-wildlife-field="eatsBerries" ${profile.eatsBerries ? 'checked' : ''} ${isReadOnly() ? 'disabled' : ''}></label>
+    <label class="character-field"><span><strong>可食用草</strong></span><input type="checkbox" data-wildlife-field="eatsGrass" ${profile.eatsGrass ? 'checked' : ''} ${isReadOnly() ? 'disabled' : ''}></label>
     <label class="character-field"><span><strong>生态角色</strong></span><select data-wildlife-field="role" ${isReadOnly() ? 'disabled' : ''}>
       <option value="prey"${selectedOption('prey', profile.role)}>猎物</option><option value="forager"${selectedOption('forager', profile.role)}>觅食者</option><option value="mesopredator"${selectedOption('mesopredator', profile.role)}>中型捕食者</option><option value="predator"${selectedOption('predator', profile.role)}>顶级捕食者</option>
     </select></label>
     ${wildlifeNumberInput('区块生成概率', 'spawnChance', profile.spawnChance, 0, 1, 0.001)}
     ${wildlifeNumberInput('群体下限', 'groupMin', profile.groupMin, 1, 12, 1, '只')}
     ${wildlifeNumberInput('群体上限', 'groupMax', profile.groupMax, 1, 12, 1, '只')}
+    ${wildlifeNumberInput('最小体型倍率', 'minSizeScale', profile.minSizeScale, 0.25, 2.5, 0.05, '×')}
+    ${wildlifeNumberInput('最大体型倍率', 'maxSizeScale', profile.maxSizeScale, 0.25, 2.5, 0.05, '×')}
+    <p class="wildlife-size-summary" data-wildlife-size-summary>视觉 ${(character.visualSize * profile.minSizeScale).toFixed(1)}–${(character.visualSize * profile.maxSizeScale).toFixed(1)}px · 碰撞 ${(character.bodyWidth * profile.minSizeScale).toFixed(1)}×${(character.bodyHeight * profile.minSizeScale).toFixed(1)} – ${(character.bodyWidth * profile.maxSizeScale).toFixed(1)}×${(character.bodyHeight * profile.maxSizeScale).toFixed(1)}px</p>
     <fieldset class="wildlife-terrain-field"><legend>可活动地形</legend>${terrains.map(([terrain, label]) => `<label><input type="checkbox" data-wildlife-terrain="${terrain}" ${profile.preferredTerrains.includes(terrain) ? 'checked' : ''} ${isReadOnly() ? 'disabled' : ''}>${label}</label>`).join('')}</fieldset>
     ${wildlifeNumberInput('游荡速度', 'walkSpeed', profile.walkSpeed, 0, 600, 5, 'px/s')}
     ${wildlifeNumberInput('逃跑速度', 'fleeSpeed', profile.fleeSpeed, 0, 600, 5, 'px/s')}
@@ -484,6 +593,7 @@ function wildlifeEditor(species: WildlifeSpeciesId): string {
     ${wildlifeNumberInput('感知半径', 'detectionRadius', profile.detectionRadius, 16, 2000, 10, 'px')}
     ${wildlifeNumberInput('放弃距离', 'giveUpRadius', profile.giveUpRadius, 16, 3000, 10, 'px')}
     ${wildlifeNumberInput('领地半径', 'territoryRadius', profile.territoryRadius, 32, 3000, 10, 'px')}
+    ${wildlifeNumberInput('反应延迟', 'reactionDelayMs', profile.reactionDelayMs, 0, 5000, 25, 'ms')}
     ${wildlifeNumberInput('警戒时长', 'alertDurationMs', profile.alertDurationMs, 0, 30000, 50, 'ms')}
     ${wildlifeNumberInput('追逐时长', 'chaseDurationMs', profile.chaseDurationMs, 0, 30000, 100, 'ms')}
     ${wildlifeNumberInput('休息时长', 'restDurationMs', profile.restDurationMs, 0, 30000, 100, 'ms')}
@@ -510,7 +620,15 @@ function characterNumberInput(
   </label>`;
 }
 
-function characterPreviewMetrics(profile: CharacterProfileConfig, asset: CharacterAssetRecord): {
+function previewSizeScale(): number {
+  if (!isWildlifeSpeciesId(selectedCharacterId)) return 1;
+  const wildlife = draft.wildlife.species[selectedCharacterId];
+  if (previewSizeMode === 'min') return wildlife.minSizeScale;
+  if (previewSizeMode === 'max') return wildlife.maxSizeScale;
+  return 1;
+}
+
+function characterPreviewMetrics(profile: CharacterProfileConfig, asset: CharacterAssetRecord, sizeScale = 1): {
   readonly imageWidth: number;
   readonly imageHeight: number;
   readonly imageLeft: number;
@@ -521,7 +639,7 @@ function characterPreviewMetrics(profile: CharacterProfileConfig, asset: Charact
   const previewCenter = 180;
   const previewPixelsPerWorldPixel = 3;
   const opaqueLongestSide = Math.max(asset.opaqueBounds.width, asset.opaqueBounds.height);
-  const scale = profile.visualSize * previewPixelsPerWorldPixel / opaqueLongestSide;
+  const scale = profile.visualSize * sizeScale * previewPixelsPerWorldPixel / opaqueLongestSide;
   const imageWidth = asset.naturalWidth * scale;
   const imageHeight = asset.naturalHeight * scale;
   return {
@@ -529,8 +647,8 @@ function characterPreviewMetrics(profile: CharacterProfileConfig, asset: Charact
     imageHeight,
     imageLeft: previewCenter - profile.anchorX * imageWidth,
     imageTop: previewCenter - profile.anchorY * imageHeight,
-    colliderWidth: profile.bodyWidth * previewPixelsPerWorldPixel,
-    colliderHeight: profile.bodyHeight * previewPixelsPerWorldPixel,
+    colliderWidth: profile.bodyWidth * sizeScale * previewPixelsPerWorldPixel,
+    colliderHeight: profile.bodyHeight * sizeScale * previewPixelsPerWorldPixel,
   };
 }
 
@@ -538,7 +656,8 @@ function updateCharacterPreview(): void {
   if (section !== 'characters') return;
   const profile = draft.characterProfiles[selectedCharacterId];
   const asset = selectedCharacterAsset();
-  const metrics = characterPreviewMetrics(profile, asset);
+  const sizeScale = previewSizeScale();
+  const metrics = characterPreviewMetrics(profile, asset, sizeScale);
   const image = characterView.querySelector<HTMLImageElement>('[data-character-preview-image]');
   if (image) {
     image.style.width = `${metrics.imageWidth}px`;
@@ -554,7 +673,12 @@ function updateCharacterPreview(): void {
     collider.style.height = `${metrics.colliderHeight}px`;
   }
   const sizeReadout = characterView.querySelector<HTMLElement>('[data-character-size-readout]');
-  if (sizeReadout) sizeReadout.textContent = `视觉 ${profile.visualSize}px · 碰撞 ${profile.bodyWidth}×${profile.bodyHeight}px`;
+  if (sizeReadout) sizeReadout.textContent = `倍率 ${sizeScale.toFixed(2)}× · 视觉 ${(profile.visualSize * sizeScale).toFixed(1)}px · 碰撞 ${(profile.bodyWidth * sizeScale).toFixed(1)}×${(profile.bodyHeight * sizeScale).toFixed(1)}px`;
+  const sizeSummary = characterView.querySelector<HTMLElement>('[data-wildlife-size-summary]');
+  if (sizeSummary && isWildlifeSpeciesId(selectedCharacterId)) {
+    const wildlife = draft.wildlife.species[selectedCharacterId];
+    sizeSummary.textContent = `视觉 ${(profile.visualSize * wildlife.minSizeScale).toFixed(1)}–${(profile.visualSize * wildlife.maxSizeScale).toFixed(1)}px · 碰撞 ${(profile.bodyWidth * wildlife.minSizeScale).toFixed(1)}×${(profile.bodyHeight * wildlife.minSizeScale).toFixed(1)} – ${(profile.bodyWidth * wildlife.maxSizeScale).toFixed(1)}×${(profile.bodyHeight * wildlife.maxSizeScale).toFixed(1)}px`;
+  }
 }
 
 function focusSelectedCharacterTab(): void {
@@ -569,7 +693,8 @@ function focusSelectedCharacterTab(): void {
 function renderCharacterView(): void {
   const profile = draft.characterProfiles[selectedCharacterId];
   const asset = selectedCharacterAsset();
-  const metrics = characterPreviewMetrics(profile, asset);
+  const sizeScale = previewSizeScale();
+  const metrics = characterPreviewMetrics(profile, asset, sizeScale);
   const directions = [
     ['上', 180], ['右上', -135], ['右', -90], ['右下', -45],
     ['下', 0], ['左下', 45], ['左', 90], ['左上', 135],
@@ -624,7 +749,10 @@ function renderCharacterView(): void {
               <span class="character-collider" data-character-collider style="width:${metrics.colliderWidth}px;height:${metrics.colliderHeight}px"><i>碰撞体</i></span>
               <span class="character-anchor" aria-hidden="true"></span>
             </div>
-            <div class="character-preview-readout" data-character-size-readout>视觉 ${profile.visualSize}px · 碰撞 ${profile.bodyWidth}×${profile.bodyHeight}px</div>
+            <div class="character-preview-readout" data-character-size-readout>倍率 ${sizeScale.toFixed(2)}× · 视觉 ${(profile.visualSize * sizeScale).toFixed(1)}px · 碰撞 ${(profile.bodyWidth * sizeScale).toFixed(1)}×${(profile.bodyHeight * sizeScale).toFixed(1)}px</div>
+            ${isWildlifeSpeciesId(selectedCharacterId) ? `<div class="character-size-preview" aria-label="AI 体型预览">
+              ${(['min', 'base', 'max'] as const).map((mode) => `<button class="${mode === previewSizeMode ? 'is-selected' : ''}" type="button" data-preview-size="${mode}" aria-pressed="${mode === previewSizeMode}">${mode === 'min' ? '最小' : mode === 'max' ? '最大' : '基准'}</button>`).join('')}
+            </div>` : ''}
             <div class="character-directions" aria-label="预览朝向">
               ${directions.map(([label, degrees]) => `<button class="${degrees === previewHeadingDegrees ? 'is-selected' : ''}" type="button" data-preview-heading="${degrees}" aria-pressed="${degrees === previewHeadingDegrees}">${label}</button>`).join('')}
             </div>
@@ -645,7 +773,7 @@ function renderCharacterView(): void {
             <section class="character-field-group">
               <h4>碰撞</h4>
               ${characterNumberInput('碰撞宽度', 'bodyWidth', profile.bodyWidth, 4, 128, 1, 'px', '排除耳朵、尾巴和四肢末端。')}
-              ${characterNumberInput('碰撞高度', 'bodyHeight', profile.bodyHeight, 4, 128, 1, 'px', '用于规划未来的实体占地。')}
+              ${characterNumberInput('碰撞高度', 'bodyHeight', profile.bodyHeight, 4, 128, 1, 'px', 'AI 动物会在运行时使用该尺寸阻挡玩家并规避障碍。')}
             </section>
             <section class="character-field-group">
               <h4>移动节奏</h4>
@@ -736,6 +864,62 @@ function renderAssetView(): void {
     </div>`;
 }
 
+function playerCameraSummary(): string {
+  const labels = ['远景', '默认', '近景'];
+  return `<section class="player-camera-summary" aria-label="1280乘720视野换算">
+    <header><div><p>VIEW CALIBRATION</p><h3>1280×720 视野换算</h3></div><span>纵向视野会按实际画布比例自动调整</span></header>
+    <div class="player-camera-summary-grid">
+      ${draft.camera.viewHalfWidthBodyMultipliers.map((multiplier, index) => {
+        const metrics = calculateCameraView(
+          { width: 1280, height: 720 },
+          draft.player.visualSize,
+          multiplier,
+        );
+        return `<article class="player-camera-summary-card${index === draft.camera.defaultViewIndex ? ' is-default' : ''}">
+          <strong>${labels[index]}${index === draft.camera.defaultViewIndex ? ' · 初始' : ''}</strong>
+          <span>单侧 ${metrics.halfWidthWorld.toFixed(0)}px · ${multiplier.toFixed(1)}×角色</span>
+          <span>视野 ${metrics.worldWidth.toFixed(0)}×${metrics.worldHeight.toFixed(0)}px</span>
+          <span>Zoom ${metrics.zoom.toFixed(3)}</span>
+        </article>`;
+      }).join('')}
+    </div>
+  </section>`;
+}
+
+function updatePlayerCameraSummary(): void {
+  if (section !== 'player') return;
+  const current = parameterView.querySelector<HTMLElement>('.player-camera-summary');
+  if (current) current.outerHTML = playerCameraSummary();
+}
+
+function formatMinutes(value: number): string {
+  return Number.isFinite(value) ? `${Number(value.toFixed(2))}` : '—';
+}
+
+function dayNightSummary(): string {
+  const config = draft.dayNight;
+  const phases = [
+    ['黎明', config.dawnDurationMinutes, 'dawn'],
+    ['白天', config.dayDurationMinutes, 'day'],
+    ['黄昏', config.duskDurationMinutes, 'dusk'],
+    ['夜晚', config.nightDurationMinutes, 'night'],
+  ] as const;
+  const total = phases.reduce((sum, [, duration]) => sum + duration, 0);
+  return `<section class="day-night-summary" aria-label="昼夜阶段时间轴">
+    <header><div><p>CYCLE PREVIEW</p><h3>总周期 ${formatMinutes(total)} 分钟</h3></div><span>05:00 黎明起点 · 19:00 进入夜晚</span></header>
+    <div class="day-night-timeline">
+      ${phases.map(([label, duration, phase]) => `<span class="is-${phase}" style="flex-grow:${Math.max(0.01, duration)}"><strong>${label}</strong><small>${formatMinutes(duration)} 分钟</small></span>`).join('')}
+    </div>
+    <p>夜间暗度 ${(config.nightDarkness * 100).toFixed(0)}% · HUD 映射为 24 小时时钟</p>
+  </section>`;
+}
+
+function updateDayNightSummary(): void {
+  if (section !== 'dayNight') return;
+  const current = parameterView.querySelector<HTMLElement>('.day-night-summary');
+  if (current) current.outerHTML = dayNightSummary();
+}
+
 function renderSection(): void {
   document.querySelectorAll<HTMLButtonElement>('.nav-item').forEach((button) => {
     button.classList.toggle('is-active', button.dataset.section === section);
@@ -789,6 +973,8 @@ function renderSection(): void {
         </article>
       `).join('')}
     </div>
+    ${activeSection === 'player' ? playerCameraSummary() : ''}
+    ${activeSection === 'dayNight' ? dayNightSummary() : ''}
   `;
 }
 
@@ -940,6 +1126,16 @@ function renderStatus(): void {
     : validation.warnings.length || missingAssets.length ? `${validation.warnings.length + missingAssets.length} 个警告` : '配置有效';
   validationStatus.className = `status-item${validation.errors.length ? ' is-error' : validation.warnings.length || missingAssets.length ? ' is-warning' : ''}`;
   historyStatus.textContent = `撤销 ${history.length} · 重做 ${future.length}`;
+  const syncPresentation = {
+    idle: ['源码默认值已载入', ''],
+    pending: ['正在同步源码默认值', ' is-warning'],
+    synced: ['源码默认值已同步', ''],
+    blocked: ['修正错误后同步默认值', ' is-warning'],
+    error: ['源码默认值同步失败', ' is-error'],
+  } as const;
+  const [syncText, syncClass] = syncPresentation[defaultSyncState];
+  defaultSyncStatus.textContent = syncText;
+  defaultSyncStatus.className = `status-item${syncClass}`;
   issueList.innerHTML = validation.errors.length || validation.warnings.length || missingAssets.length
     ? [
       ...validation.errors.map((issue) => `<p><strong>错误 · ${escapeHtml(issue.path)}</strong><br>${escapeHtml(issue.message)}</p>`),
@@ -1034,8 +1230,8 @@ function saveAndActivate(): void {
     showMessage('存在错误，无法保存');
     return;
   }
-  store = upsertPreset(store, { ...preset, config: draft }, true);
-  savePresetStore(localStorage, store);
+  const nextStore = upsertPreset(store, { ...preset, config: draft }, true);
+  if (!persistPresetStore(nextStore)) return;
   savedSnapshot = JSON.stringify(draft);
   showMessage('已保存并设为活动预设');
   syncDraftViews();
@@ -1048,8 +1244,8 @@ function createPresetFromDialog(name: string): void {
     return;
   }
   const preset = createDevPreset(name, draft);
-  store = upsertPreset(store, preset, true);
-  savePresetStore(localStorage, store);
+  const nextStore = upsertPreset(store, preset, true);
+  if (!persistPresetStore(nextStore)) return;
   selectedPresetId = preset.id;
   draft = cloneGameConfig(preset.config);
   savedSnapshot = JSON.stringify(draft);
@@ -1065,6 +1261,7 @@ function undo(): void {
   future = [cloneGameConfig(draft), ...future.slice(0, 49)];
   history = history.slice(0, -1);
   draft = previous;
+  queueDefaultSync();
   syncDraftViews();
 }
 
@@ -1074,6 +1271,7 @@ function redo(): void {
   history = [...history.slice(-49), cloneGameConfig(draft)];
   future = future.slice(1);
   draft = next;
+  queueDefaultSync();
   syncDraftViews();
 }
 
@@ -1270,6 +1468,7 @@ characterView.addEventListener('click', (event) => {
   if (tab?.dataset.characterId) {
     selectedCharacterId = tab.dataset.characterId as CharacterId;
     previewHeadingDegrees = 0;
+    previewSizeMode = 'base';
     renderCharacterView();
     renderInspector();
     focusSelectedCharacterTab();
@@ -1278,6 +1477,12 @@ characterView.addEventListener('click', (event) => {
   const heading = target.closest<HTMLButtonElement>('[data-preview-heading]');
   if (heading?.dataset.previewHeading) {
     previewHeadingDegrees = Number(heading.dataset.previewHeading);
+    renderCharacterView();
+    return;
+  }
+  const sizePreview = target.closest<HTMLButtonElement>('[data-preview-size]');
+  if (sizePreview?.dataset.previewSize) {
+    previewSizeMode = sizePreview.dataset.previewSize as typeof previewSizeMode;
     renderCharacterView();
     return;
   }
@@ -1298,6 +1503,7 @@ characterView.addEventListener('input', (event) => {
   const wildlifeField = input.dataset.wildlifeField as keyof WildlifeSpeciesConfig | undefined;
   if (wildlifeField && isWildlifeSpeciesId(selectedCharacterId) && Number.isFinite(input.valueAsNumber)) {
     updateWildlifeProfile(selectedCharacterId, { [wildlifeField]: input.valueAsNumber }, false);
+    if (wildlifeField === 'minSizeScale' || wildlifeField === 'maxSizeScale') updateCharacterPreview();
     renderInspector();
     return;
   }
@@ -1313,8 +1519,8 @@ characterView.addEventListener('change', (event) => {
   if (!(element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement) || isReadOnly()) return;
   if (isWildlifeSpeciesId(selectedCharacterId)) {
     const wildlifeField = element.dataset.wildlifeField as keyof WildlifeSpeciesConfig | undefined;
-    if (wildlifeField === 'enabled' && element instanceof HTMLInputElement) {
-      updateWildlifeProfile(selectedCharacterId, { enabled: element.checked });
+    if ((wildlifeField === 'enabled' || wildlifeField === 'eatsBerries' || wildlifeField === 'eatsGrass') && element instanceof HTMLInputElement) {
+      updateWildlifeProfile(selectedCharacterId, { [wildlifeField]: element.checked });
       return;
     }
     if (wildlifeField === 'role' && element instanceof HTMLSelectElement) {
@@ -1348,6 +1554,7 @@ characterView.addEventListener('keydown', (event) => {
   const nextIndex = (currentIndex + (backwards ? -1 : 1) + CHARACTER_IDS.length) % CHARACTER_IDS.length;
   selectedCharacterId = CHARACTER_IDS[nextIndex];
   previewHeadingDegrees = 0;
+  previewSizeMode = 'base';
   renderCharacterView();
   renderInspector();
   focusSelectedCharacterTab();
@@ -1357,6 +1564,8 @@ parameterView.addEventListener('input', (event) => {
   const input = event.target;
   if (!(input instanceof HTMLInputElement) || !input.dataset.configPath || isReadOnly()) return;
   commitConfig(setNumberPath(draft, input.dataset.configPath, Number(input.value)), false);
+  updatePlayerCameraSummary();
+  updateDayNightSummary();
 });
 
 async function reloadAssetCatalog(): Promise<void> {
@@ -1576,8 +1785,8 @@ requireElement<HTMLFormElement>('preset-form').addEventListener('submit', (event
 deletePresetButton.addEventListener('click', () => {
   const preset = currentPreset();
   if (!preset || !window.confirm(`删除本地预设“${preset.name}”？`)) return;
-  store = deletePreset(store, preset.id);
-  savePresetStore(localStorage, store);
+  const nextStore = deletePreset(store, preset.id);
+  if (!persistPresetStore(nextStore)) return;
   selectedPresetId = store.activePresetId;
   const active = currentPreset();
   draft = cloneGameConfig(active?.config ?? DEFAULT_GAME_CONFIG);
@@ -1605,8 +1814,8 @@ importInput.addEventListener('change', async () => {
   if (!file) return;
   try {
     const preset = importPreset(await file.text(), store);
-    store = upsertPreset(store, preset, false);
-    savePresetStore(localStorage, store);
+    const nextStore = upsertPreset(store, preset, false);
+    if (!persistPresetStore(nextStore)) return;
     selectPreset(preset.id);
     showMessage('预设已导入，保存后可激活');
   } catch (error) {
@@ -1660,3 +1869,4 @@ renderTopbar();
 renderSection();
 renderInspector();
 renderStatus();
+if (selectedPresetId !== null) queueDefaultSync(0);

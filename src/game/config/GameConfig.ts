@@ -7,6 +7,12 @@ import {
   type CharacterProfileConfig,
 } from './characterProfiles';
 import { cloneDefaultWildlifeConfig, WILDLIFE_SPECIES_IDS } from '../wildlife/config';
+import { maximumStreamedHalfWidth } from '../camera/view';
+import {
+  DEFAULT_SEEDED_RESOURCES_CONFIG,
+  type SeededResourcesConfig,
+} from '../resources/config';
+import tunedDefaultOverrides from './tunedDefaults.json';
 import type {
   ColliderDefinition,
   ObstacleDefinition,
@@ -18,7 +24,7 @@ import type {
   WildlifeGlobalConfig,
 } from '../types';
 
-export const GAME_CONFIG_SCHEMA_VERSION = 6 as const;
+export const GAME_CONFIG_SCHEMA_VERSION = 14 as const;
 
 export type { CharacterId, CharacterProfileConfig } from './characterProfiles';
 
@@ -32,8 +38,8 @@ export interface PlayerConfig {
 }
 
 export interface CameraConfig {
-  readonly zoomLevels: readonly [number, number, number];
-  readonly defaultZoomIndex: number;
+  readonly viewHalfWidthBodyMultipliers: readonly [number, number, number];
+  readonly defaultViewIndex: number;
   readonly followLerp: number;
   readonly fadeInMs: number;
 }
@@ -48,6 +54,29 @@ export interface InputConfig {
   readonly joystickDeadZone: number;
 }
 
+export interface SurvivalConfig {
+  readonly foodDrainAmount: number;
+  readonly foodDrainIntervalSeconds: number;
+  readonly waterDrainAmount: number;
+  readonly waterDrainIntervalSeconds: number;
+  readonly sprintConsumptionMultiplier: number;
+  readonly staminaDrainPerSecond: number;
+  readonly staminaRecoveryDelaySeconds: number;
+  readonly staminaRecoveryPerSecond: number;
+  readonly staminaStationaryRecoveryDelaySeconds: number;
+  readonly staminaStationaryRecoveryPerSecond: number;
+  readonly starvationDamagePerSecond: number;
+  readonly dehydrationDamagePerSecond: number;
+}
+
+export interface DayNightConfig {
+  readonly dawnDurationMinutes: number;
+  readonly dayDurationMinutes: number;
+  readonly duskDurationMinutes: number;
+  readonly nightDurationMinutes: number;
+  readonly nightDarkness: number;
+}
+
 export interface GameConfig {
   readonly schemaVersion: typeof GAME_CONFIG_SCHEMA_VERSION;
   readonly player: PlayerConfig;
@@ -55,6 +84,9 @@ export interface GameConfig {
   readonly camera: CameraConfig;
   readonly audio: AudioConfig;
   readonly input: InputConfig;
+  readonly survival: SurvivalConfig;
+  readonly dayNight: DayNightConfig;
+  readonly seededResources: SeededResourcesConfig;
   readonly world: WorldLayout;
   readonly proceduralWorld: ProceduralWorldConfig;
   readonly worldAssets: WorldAssetConfig;
@@ -71,7 +103,15 @@ export interface ConfigValidationResult {
   readonly warnings: readonly ValidationIssue[];
 }
 
-export const DEFAULT_GAME_CONFIG: GameConfig = {
+type DeepPartial<T> = T extends readonly unknown[]
+  ? T
+  : T extends object
+    ? { readonly [K in keyof T]?: DeepPartial<T[K]> }
+    : T;
+
+export type GameConfigOverrides = DeepPartial<Omit<GameConfig, 'schemaVersion'>>;
+
+export const BASE_GAME_CONFIG: GameConfig = {
   schemaVersion: GAME_CONFIG_SCHEMA_VERSION,
   player: {
     moveSpeed: 200,
@@ -83,8 +123,8 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
   },
   characterProfiles: cloneDefaultCharacterProfiles(),
   camera: {
-    zoomLevels: [0.8, 1, 1.2],
-    defaultZoomIndex: 1,
+    viewHalfWidthBodyMultipliers: [15, 10, 7.5],
+    defaultViewIndex: 1,
     followLerp: 0.1,
     fadeInMs: 700,
   },
@@ -96,6 +136,28 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
   input: {
     joystickDeadZone: 0.17,
   },
+  survival: {
+    foodDrainAmount: 1,
+    foodDrainIntervalSeconds: 3,
+    waterDrainAmount: 1,
+    waterDrainIntervalSeconds: 2,
+    sprintConsumptionMultiplier: 1.5,
+    staminaDrainPerSecond: 10,
+    staminaRecoveryDelaySeconds: 3,
+    staminaRecoveryPerSecond: 5,
+    staminaStationaryRecoveryDelaySeconds: 3,
+    staminaStationaryRecoveryPerSecond: 20,
+    starvationDamagePerSecond: 1,
+    dehydrationDamagePerSecond: 2,
+  },
+  dayNight: {
+    dawnDurationMinutes: 0.75,
+    dayDurationMinutes: 3,
+    duskDurationMinutes: 0.75,
+    nightDurationMinutes: 3,
+    nightDarkness: 0.52,
+  },
+  seededResources: structuredClone(DEFAULT_SEEDED_RESOURCES_CONFIG),
   world: WORLD_LAYOUT,
   proceduralWorld: {
     generationVersion: 'worldgen-v1',
@@ -121,6 +183,62 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
   wildlife: cloneDefaultWildlifeConfig(),
 };
 
+function applyOverrides<T>(base: T, overrides: unknown): T {
+  if (overrides === undefined) return structuredClone(base);
+  if (Array.isArray(base)) {
+    return (Array.isArray(overrides) ? structuredClone(overrides) : structuredClone(base)) as T;
+  }
+  if (isRecord(base)) {
+    const source = isRecord(overrides) ? overrides : {};
+    const keys = new Set([...Object.keys(base), ...Object.keys(source)]);
+    return Object.fromEntries([...keys].map((key) => (
+      key in base
+        ? [key, applyOverrides(base[key], source[key])]
+        : [key, structuredClone(source[key])]
+    ))) as T;
+  }
+  return structuredClone(overrides) as T;
+}
+
+function diffOverrides(base: unknown, candidate: unknown): unknown {
+  if (Object.is(base, candidate)) return undefined;
+  if (Array.isArray(base) || Array.isArray(candidate)) {
+    return JSON.stringify(base) === JSON.stringify(candidate) ? undefined : structuredClone(candidate);
+  }
+  if (isRecord(base) && isRecord(candidate)) {
+    const entries = Object.keys(candidate).flatMap((key) => {
+      const difference = diffOverrides(base[key], candidate[key]);
+      return difference === undefined ? [] : [[key, difference] as const];
+    });
+    return entries.length ? Object.fromEntries(entries) : undefined;
+  }
+  return structuredClone(candidate);
+}
+
+export function applyGameConfigOverrides(
+  base: Readonly<GameConfig>,
+  overrides: Readonly<GameConfigOverrides>,
+): GameConfig {
+  const { schemaVersion: _schemaVersion, ...baseValues } = base;
+  return {
+    schemaVersion: GAME_CONFIG_SCHEMA_VERSION,
+    ...applyOverrides(baseValues, overrides),
+  } as GameConfig;
+}
+
+export function createDefaultGameConfigOverrides(
+  config: Readonly<GameConfig>,
+): GameConfigOverrides {
+  const { schemaVersion: _schemaVersion, ...candidateValues } = config;
+  const { schemaVersion: _baseSchemaVersion, ...baseValues } = BASE_GAME_CONFIG;
+  return (diffOverrides(baseValues, candidateValues) ?? {}) as GameConfigOverrides;
+}
+
+export const DEFAULT_GAME_CONFIG: GameConfig = applyGameConfigOverrides(
+  BASE_GAME_CONFIG,
+  tunedDefaultOverrides as unknown as GameConfigOverrides,
+);
+
 export function cloneGameConfig(config: Readonly<GameConfig>): GameConfig {
   return structuredClone(config);
 }
@@ -145,6 +263,21 @@ function finiteNumber(
     return false;
   }
   return true;
+}
+
+function integerNumber(
+  value: unknown,
+  path: string,
+  errors: ValidationIssue[],
+  minimum: number,
+  maximum: number,
+): value is number {
+  const valid = finiteNumber(value, path, errors, minimum, maximum);
+  if (valid && !Number.isInteger(value)) {
+    errors.push({ path, message: '必须是整数' });
+    return false;
+  }
+  return valid;
 }
 
 function validatePoint(
@@ -267,12 +400,19 @@ function validateWildlife(value: unknown, errors: ValidationIssue[]): void {
       continue;
     }
     if (typeof species.enabled !== 'boolean') errors.push({ path: `${path}.enabled`, message: '必须是布尔值' });
+    if (typeof species.eatsBerries !== 'boolean') errors.push({ path: `${path}.eatsBerries`, message: '必须是布尔值' });
+    if (typeof species.eatsGrass !== 'boolean') errors.push({ path: `${path}.eatsGrass`, message: '必须是布尔值' });
     if (typeof species.role !== 'string' || !roles.has(species.role)) errors.push({ path: `${path}.role`, message: '未知的生态角色' });
     finiteNumber(species.spawnChance, `${path}.spawnChance`, errors, 0, 1);
     finiteNumber(species.groupMin, `${path}.groupMin`, errors, 1, 12);
     finiteNumber(species.groupMax, `${path}.groupMax`, errors, 1, 12);
+    finiteNumber(species.minSizeScale, `${path}.minSizeScale`, errors, 0.25, 2.5);
+    finiteNumber(species.maxSizeScale, `${path}.maxSizeScale`, errors, 0.25, 2.5);
     if (typeof species.groupMin === 'number' && typeof species.groupMax === 'number' && species.groupMax < species.groupMin) {
       errors.push({ path: `${path}.groupMax`, message: '群体上限不能小于下限' });
+    }
+    if (typeof species.minSizeScale === 'number' && typeof species.maxSizeScale === 'number' && species.maxSizeScale < species.minSizeScale) {
+      errors.push({ path: `${path}.maxSizeScale`, message: '最大体型倍率不能小于最小体型倍率' });
     }
     if (!Array.isArray(species.preferredTerrains) || species.preferredTerrains.length === 0 || species.preferredTerrains.some((terrain) => typeof terrain !== 'string' || !terrains.has(terrain))) {
       errors.push({ path: `${path}.preferredTerrains`, message: '至少需要一种有效地形' });
@@ -283,6 +423,7 @@ function validateWildlife(value: unknown, errors: ValidationIssue[]): void {
     finiteNumber(species.detectionRadius, `${path}.detectionRadius`, errors, 16, 2000);
     finiteNumber(species.giveUpRadius, `${path}.giveUpRadius`, errors, 16, 3000);
     finiteNumber(species.territoryRadius, `${path}.territoryRadius`, errors, 32, 3000);
+    finiteNumber(species.reactionDelayMs, `${path}.reactionDelayMs`, errors, 0, 5000);
     finiteNumber(species.alertDurationMs, `${path}.alertDurationMs`, errors, 0, 30000);
     finiteNumber(species.chaseDurationMs, `${path}.chaseDurationMs`, errors, 0, 30000);
     finiteNumber(species.restDurationMs, `${path}.restDurationMs`, errors, 0, 30000);
@@ -504,30 +645,30 @@ export function validateGameConfig(value: unknown): ConfigValidationResult {
   if (!isRecord(camera)) {
     errors.push({ path: 'camera', message: '缺少镜头参数' });
   } else {
-    const zoomLevels = camera.zoomLevels;
-    if (!Array.isArray(zoomLevels) || zoomLevels.length !== 3) {
-      errors.push({ path: 'camera.zoomLevels', message: '必须恰好包含三个缩放档位' });
+    const viewMultipliers = camera.viewHalfWidthBodyMultipliers;
+    if (!Array.isArray(viewMultipliers) || viewMultipliers.length !== 3) {
+      errors.push({ path: 'camera.viewHalfWidthBodyMultipliers', message: '必须恰好包含远景、默认和近景三个视野档位' });
     } else {
-      zoomLevels.forEach((zoom, index) => {
-        finiteNumber(zoom, `camera.zoomLevels.${index}`, errors, 0.25, 3);
+      viewMultipliers.forEach((multiplier, index) => {
+        finiteNumber(multiplier, `camera.viewHalfWidthBodyMultipliers.${index}`, errors, 2, 30);
       });
-      if (zoomLevels.some((zoom, index) => (
-        typeof zoom === 'number'
+      if (viewMultipliers.some((multiplier, index) => (
+        typeof multiplier === 'number'
         && index > 0
-        && typeof zoomLevels[index - 1] === 'number'
-        && zoom <= zoomLevels[index - 1]
+        && typeof viewMultipliers[index - 1] === 'number'
+        && multiplier >= viewMultipliers[index - 1]
       ))) {
-        errors.push({ path: 'camera.zoomLevels', message: '缩放档位必须严格递增' });
+        errors.push({ path: 'camera.viewHalfWidthBodyMultipliers', message: '远景、默认和近景的单侧可见体型倍数必须严格递减' });
       }
     }
-    const defaultZoomIndex = camera.defaultZoomIndex;
+    const defaultViewIndex = camera.defaultViewIndex;
     if (
-      typeof defaultZoomIndex !== 'number'
-      || !Number.isInteger(defaultZoomIndex)
-      || defaultZoomIndex < 0
-      || defaultZoomIndex > 2
+      typeof defaultViewIndex !== 'number'
+      || !Number.isInteger(defaultViewIndex)
+      || defaultViewIndex < 0
+      || defaultViewIndex > 2
     ) {
-      errors.push({ path: 'camera.defaultZoomIndex', message: '默认档位必须是 0、1 或 2' });
+      errors.push({ path: 'camera.defaultViewIndex', message: '默认档位必须是 0、1 或 2' });
     }
     finiteNumber(camera.followLerp, 'camera.followLerp', errors, 0, 1);
     finiteNumber(camera.fadeInMs, 'camera.fadeInMs', errors, 0, 3000);
@@ -547,6 +688,67 @@ export function validateGameConfig(value: unknown): ConfigValidationResult {
     errors.push({ path: 'input', message: '缺少输入参数' });
   } else {
     finiteNumber(input.joystickDeadZone, 'input.joystickDeadZone', errors, 0, 0.5);
+  }
+  const survival = value.survival;
+  if (!isRecord(survival)) {
+    errors.push({ path: 'survival', message: '缺少生存消耗参数' });
+  } else {
+    finiteNumber(survival.foodDrainAmount, 'survival.foodDrainAmount', errors, 0, 100);
+    finiteNumber(survival.foodDrainIntervalSeconds, 'survival.foodDrainIntervalSeconds', errors, 0.1, 3600);
+    finiteNumber(survival.waterDrainAmount, 'survival.waterDrainAmount', errors, 0, 100);
+    finiteNumber(survival.waterDrainIntervalSeconds, 'survival.waterDrainIntervalSeconds', errors, 0.1, 3600);
+    finiteNumber(survival.sprintConsumptionMultiplier, 'survival.sprintConsumptionMultiplier', errors, 1, 5);
+    finiteNumber(survival.staminaDrainPerSecond, 'survival.staminaDrainPerSecond', errors, 0, 100);
+    finiteNumber(survival.staminaRecoveryDelaySeconds, 'survival.staminaRecoveryDelaySeconds', errors, 0, 3600);
+    finiteNumber(survival.staminaRecoveryPerSecond, 'survival.staminaRecoveryPerSecond', errors, 0, 100);
+    finiteNumber(survival.staminaStationaryRecoveryDelaySeconds, 'survival.staminaStationaryRecoveryDelaySeconds', errors, 0, 3600);
+    finiteNumber(survival.staminaStationaryRecoveryPerSecond, 'survival.staminaStationaryRecoveryPerSecond', errors, 0, 100);
+    finiteNumber(survival.starvationDamagePerSecond, 'survival.starvationDamagePerSecond', errors, 0, 100);
+    finiteNumber(survival.dehydrationDamagePerSecond, 'survival.dehydrationDamagePerSecond', errors, 0, 100);
+  }
+  const dayNight = value.dayNight;
+  if (!isRecord(dayNight)) {
+    errors.push({ path: 'dayNight', message: '缺少昼夜循环参数' });
+  } else {
+    finiteNumber(dayNight.dawnDurationMinutes, 'dayNight.dawnDurationMinutes', errors, 0.01, 120);
+    finiteNumber(dayNight.dayDurationMinutes, 'dayNight.dayDurationMinutes', errors, 0.01, 120);
+    finiteNumber(dayNight.duskDurationMinutes, 'dayNight.duskDurationMinutes', errors, 0.01, 120);
+    finiteNumber(dayNight.nightDurationMinutes, 'dayNight.nightDurationMinutes', errors, 0.01, 120);
+    finiteNumber(dayNight.nightDarkness, 'dayNight.nightDarkness', errors, 0, 0.75);
+  }
+  const seededResources = value.seededResources;
+  if (!isRecord(seededResources)) {
+    errors.push({ path: 'seededResources', message: '缺少种子世界资源补给参数' });
+  } else {
+    finiteNumber(seededResources.berryMinPerChunk, 'seededResources.berryMinPerChunk', errors, 0, 8);
+    finiteNumber(seededResources.berryMaxPerChunk, 'seededResources.berryMaxPerChunk', errors, 0, 8);
+    finiteNumber(seededResources.berryMinFood, 'seededResources.berryMinFood', errors, 0, 100);
+    finiteNumber(seededResources.berryMaxFood, 'seededResources.berryMaxFood', errors, 0, 100);
+    finiteNumber(seededResources.playerConsumeSeconds, 'seededResources.playerConsumeSeconds', errors, 0.1, 60);
+    finiteNumber(seededResources.wildlifeConsumeSeconds, 'seededResources.wildlifeConsumeSeconds', errors, 0.1, 60);
+    finiteNumber(seededResources.berryRegrowSeconds, 'seededResources.berryRegrowSeconds', errors, 1, 3600);
+    finiteNumber(seededResources.berryInteractionRadius, 'seededResources.berryInteractionRadius', errors, 24, 192);
+    finiteNumber(seededResources.shallowWaterRecoveryPerSecond, 'seededResources.shallowWaterRecoveryPerSecond', errors, 0, 100);
+    integerNumber(seededResources.grassMaxPerChunk, 'seededResources.grassMaxPerChunk', errors, 0, 32);
+    finiteNumber(seededResources.grassSeekChance, 'seededResources.grassSeekChance', errors, 0, 1);
+    finiteNumber(seededResources.grassConsumeSeconds, 'seededResources.grassConsumeSeconds', errors, 0.1, 300);
+    finiteNumber(seededResources.grassRefreshSeconds, 'seededResources.grassRefreshSeconds', errors, 1, 3600);
+    finiteNumber(seededResources.grassInteractionRadius, 'seededResources.grassInteractionRadius', errors, 16, 192);
+    integerNumber(seededResources.grassMaxConsumersPerPatch, 'seededResources.grassMaxConsumersPerPatch', errors, 1, 8);
+    if (
+      typeof seededResources.berryMinPerChunk === 'number'
+      && typeof seededResources.berryMaxPerChunk === 'number'
+      && seededResources.berryMaxPerChunk < seededResources.berryMinPerChunk
+    ) {
+      errors.push({ path: 'seededResources.berryMaxPerChunk', message: '浆果数量上限不能小于下限' });
+    }
+    if (
+      typeof seededResources.berryMinFood === 'number'
+      && typeof seededResources.berryMaxFood === 'number'
+      && seededResources.berryMaxFood < seededResources.berryMinFood
+    ) {
+      errors.push({ path: 'seededResources.berryMaxFood', message: '浆果食物上限不能小于下限' });
+    }
   }
   validateWorld(value.world, errors, warnings);
   const procedural = value.proceduralWorld;
@@ -586,6 +788,23 @@ export function validateGameConfig(value: unknown): ConfigValidationResult {
       && procedural.unloadRadius < procedural.loadRadius
     ) {
       errors.push({ path: 'proceduralWorld.unloadRadius', message: '卸载半径不能小于加载半径' });
+    }
+    const viewMultipliers = isRecord(camera) ? camera.viewHalfWidthBodyMultipliers : undefined;
+    if (
+      isRecord(player)
+      && typeof player.visualSize === 'number'
+      && Array.isArray(viewMultipliers)
+      && typeof viewMultipliers[0] === 'number'
+      && typeof procedural.tileSize === 'number'
+      && typeof procedural.chunkTiles === 'number'
+      && typeof procedural.loadRadius === 'number'
+      && player.visualSize * viewMultipliers[0]
+        > maximumStreamedHalfWidth(procedural.tileSize, procedural.chunkTiles, procedural.loadRadius)
+    ) {
+      errors.push({
+        path: 'camera.viewHalfWidthBodyMultipliers.0',
+        message: '远景视野超出当前种子世界区块加载能力，请减小远景倍率、角色尺寸或提高加载半径',
+      });
     }
   }
   const worldAssets = value.worldAssets;

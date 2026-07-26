@@ -1,11 +1,15 @@
 import { ASSET_URLS } from '../game/assets/manifest';
 import type {
+  DayNightPhase,
+  DayNightState,
   GamePhase,
   GameSnapshot,
+  PlayerForagingSnapshot,
   SurvivalState,
   SurvivalStat,
   WorldLaunchRequest,
 } from '../game/types';
+import { formatSessionElapsed } from '../game/state/SessionTimer';
 import { generateWorldSeed, normalizeWorldSeed, parseWorldSeed } from '../game/world/seed';
 import { FullscreenController } from './FullscreenController';
 import { TouchControls } from './TouchControls';
@@ -27,9 +31,20 @@ function requireElement<T extends HTMLElement>(id: string): T {
 }
 
 const SURVIVAL_STATS: readonly SurvivalStat[] = ['health', 'food', 'water', 'stamina'];
+const DAY_NIGHT_PRESENTATION: Readonly<Record<DayNightPhase, { readonly label: string; readonly icon: string }>> = {
+  dawn: { label: '黎明', icon: '◒' },
+  day: { label: '白天', icon: '☀' },
+  dusk: { label: '黄昏', icon: '◓' },
+  night: { label: '夜晚', icon: '☾' },
+};
 
 export class AppUI {
   private readonly root = requireElement<HTMLElement>('ui-root');
+  private readonly dayNightOverlay = requireElement<HTMLElement>('day-night-overlay');
+  private readonly dayNightHud = requireElement<HTMLElement>('day-night-hud');
+  private readonly dayNightIcon = requireElement<HTMLElement>('day-night-icon');
+  private readonly dayNightPhase = requireElement<HTMLElement>('day-night-phase');
+  private readonly dayNightTime = requireElement<HTMLTimeElement>('day-night-time');
   private readonly titleScreen = requireElement<HTMLElement>('title-screen');
   private readonly titleArt = requireElement<HTMLImageElement>('title-art');
   private readonly pauseScreen = requireElement<HTMLElement>('pause-screen');
@@ -47,12 +62,16 @@ export class AppUI {
   private readonly debugPanel = requireElement<HTMLElement>('debug-panel');
   private readonly debugStats = requireElement<HTMLElement>('debug-stats');
   private readonly areaName = requireElement<HTMLElement>('area-name');
+  private readonly foragingProgress = requireElement<HTMLElement>('foraging-progress');
+  private readonly foragingProgressFill = requireElement<HTMLElement>('foraging-progress-fill');
+  private readonly foragingProgressValue = requireElement<HTMLOutputElement>('foraging-progress-value');
   private readonly titleSeedInput = requireElement<HTMLInputElement>('title-seed-input');
   private readonly titleSeedError = requireElement<HTMLElement>('title-seed-error');
   private readonly pauseWorldPanel = requireElement<HTMLElement>('pause-world-panel');
   private readonly pauseWorldSeed = requireElement<HTMLOutputElement>('pause-world-seed');
   private readonly pauseSeedInput = requireElement<HTMLInputElement>('pause-seed-input');
   private readonly pauseSeedError = requireElement<HTMLElement>('pause-seed-error');
+  private readonly sessionElapsedTime = requireElement<HTMLTimeElement>('session-elapsed-time');
   private readonly survivalItems = Object.fromEntries(SURVIVAL_STATS.map((stat) => [
     stat,
     requireElement<HTMLElement>(`survival-${stat}`),
@@ -138,6 +157,7 @@ export class AppUI {
       this.updateStartAvailability();
     }, { once: true });
     this.titleArt.src = ASSET_URLS.titleScreen;
+    requireElement<HTMLImageElement>('title-yl-logo').src = ASSET_URLS.ylLogo;
     requireElement<HTMLImageElement>('survival-health-icon').src = ASSET_URLS.healthIcon;
     requireElement<HTMLImageElement>('survival-food-icon').src = ASSET_URLS.foodIcon;
     requireElement<HTMLImageElement>('survival-water-icon').src = ASSET_URLS.waterIcon;
@@ -152,6 +172,7 @@ export class AppUI {
 
   setPhase(phase: GamePhase): void {
     this.root.dataset.phase = phase;
+    this.dayNightOverlay.classList.toggle('is-visible', phase !== 'title');
     this.titleScreen.classList.toggle('is-visible', phase === 'title');
     this.pauseScreen.classList.toggle('is-visible', phase === 'paused');
     this.titleScreen.setAttribute('aria-hidden', String(phase !== 'title'));
@@ -180,12 +201,15 @@ export class AppUI {
   }
 
   updateDebug(snapshot: Readonly<GameSnapshot>): void {
-    const { player, runtime, world } = snapshot;
+    const { dayNight, player, runtime, world } = snapshot;
     this.debugStats.textContent = [
       `FPS ${runtime.fps.toFixed(0)}`,
       `X ${player.x.toFixed(1)}`,
       `Y ${player.y.toFixed(1)}`,
-      `ZOOM ${runtime.cameraZoom.toFixed(1)}`,
+      `VIEW ${runtime.cameraViewIndex + 1} / ${runtime.cameraHalfWidthBodyMultiplier.toFixed(1)}×`,
+      `SPAN ${runtime.cameraWorldWidth.toFixed(0)}×${runtime.cameraWorldHeight.toFixed(0)}`,
+      `ZOOM ${runtime.cameraZoom.toFixed(2)}`,
+      `${dayNight.phase.toUpperCase()} ${dayNight.clockText}`,
       world.seed ?? 'FIXED',
       world.chunk ? `CHUNK ${world.chunk.x},${world.chunk.y}` : '',
       `ACTIVE ${world.activeChunks}`,
@@ -193,6 +217,13 @@ export class AppUI {
       `OBJ ${world.objectCount}`,
       `BODY ${world.colliderCount}`,
       `GEN ${world.lastGenerationMs.toFixed(1)}ms`,
+      `BERRY ${world.resources.activeRipeBushes}/${world.resources.activeEmptyBushes}`,
+      `BERRY-MOD ${world.resources.modifiedBushes}`,
+      `EAT ${world.resources.activeConsumers}`,
+      `GRASS ${world.resources.activeGrassPatches}/${world.resources.grazingGrassPatches}`,
+      `GRAZE ${world.resources.grassConsumers}`,
+      `GRASS-REFRESH ${world.resources.grassRefreshes}`,
+      world.resources.playerInShallowWater ? 'SHALLOW +WATER' : '',
       `ANIMAL ${world.wildlife.activeAnimals}/${world.wildlife.sleepingAnimals}`,
       `AI ${world.wildlife.lastSimulationMs.toFixed(1)}ms`,
       Object.entries(world.wildlife.byState).map(([state, count]) => `${state.toUpperCase()} ${count}`).join('/'),
@@ -210,6 +241,35 @@ export class AppUI {
       item.classList.toggle('is-low', value <= 25);
       item.classList.toggle('is-warning', value > 25 && value <= 50);
     }
+  }
+
+  updateDayNight(dayNight: Readonly<DayNightState>): void {
+    const presentation = DAY_NIGHT_PRESENTATION[dayNight.phase];
+    this.dayNightOverlay.style.backgroundColor = dayNight.lighting.color;
+    this.dayNightOverlay.style.opacity = String(dayNight.lighting.opacity);
+    this.dayNightOverlay.dataset.phase = dayNight.phase;
+    this.dayNightHud.dataset.phase = dayNight.phase;
+    this.dayNightHud.setAttribute('aria-label', `${presentation.label} ${dayNight.clockText}`);
+    this.dayNightIcon.textContent = presentation.icon;
+    this.dayNightPhase.textContent = presentation.label;
+    this.dayNightTime.textContent = dayNight.clockText;
+    this.dayNightTime.dateTime = dayNight.clockText;
+  }
+
+  updateForaging(foraging: Readonly<PlayerForagingSnapshot>): void {
+    const percent = Math.round(foraging.progress * 100);
+    this.foragingProgress.classList.toggle('is-visible', foraging.active);
+    this.foragingProgress.setAttribute('aria-hidden', String(!foraging.active));
+    this.foragingProgress.setAttribute('aria-valuenow', String(percent));
+    this.foragingProgressFill.style.width = `${percent}%`;
+    this.foragingProgressValue.value = `${percent}%`;
+  }
+
+  updateSessionElapsed(elapsedMs: number): void {
+    const elapsedSeconds = Math.max(0, Math.floor(elapsedMs / 1000));
+    this.sessionElapsedTime.textContent = formatSessionElapsed(elapsedMs);
+    this.sessionElapsedTime.dateTime = `PT${elapsedSeconds}S`;
+    this.sessionElapsedTime.dataset.elapsedMs = String(Math.round(elapsedMs));
   }
 
   private showControlsHint(): void {

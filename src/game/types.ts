@@ -68,6 +68,23 @@ export interface SurvivalState {
   readonly stamina: number;
 }
 
+export type DayNightPhase = 'dawn' | 'day' | 'dusk' | 'night';
+
+export interface DayNightLighting {
+  readonly color: string;
+  readonly opacity: number;
+}
+
+export interface DayNightState {
+  readonly elapsedSeconds: number;
+  readonly phase: DayNightPhase;
+  readonly phaseProgress: number;
+  readonly cycleProgress: number;
+  readonly clockMinutes: number;
+  readonly clockText: string;
+  readonly lighting: DayNightLighting;
+}
+
 export type ColliderDefinition =
   | {
       readonly shape: 'rectangle';
@@ -101,6 +118,7 @@ export type WorldAssetSlotId =
   | `seeded.rock.${0 | 1 | 2 | 3}`
   | `seeded.pebble.${0 | 1 | 2 | 3 | 4}`
   | 'seeded.log'
+  | `seeded.resource.${'berry-ripe' | 'berry-empty'}`
   | `seeded.decoration.${'grass' | 'bush' | 'flower' | 'leaf' | 'reed'}`;
 
 export type WorldAssetCategory =
@@ -171,6 +189,10 @@ export type WildlifeBehaviorState =
   | 'idle'
   | 'wander'
   | 'forage'
+  | 'seek-berry'
+  | 'eat-berry'
+  | 'seek-grass'
+  | 'eat-grass'
   | 'alert'
   | 'flee'
   | 'stalk'
@@ -180,10 +202,14 @@ export type WildlifeBehaviorState =
 
 export interface WildlifeSpeciesConfig {
   readonly enabled: boolean;
+  readonly eatsBerries: boolean;
+  readonly eatsGrass: boolean;
   readonly role: WildlifeRole;
   readonly spawnChance: number;
   readonly groupMin: number;
   readonly groupMax: number;
+  readonly minSizeScale: number;
+  readonly maxSizeScale: number;
   readonly preferredTerrains: readonly TerrainType[];
   readonly walkSpeed: number;
   readonly fleeSpeed: number;
@@ -191,6 +217,7 @@ export interface WildlifeSpeciesConfig {
   readonly detectionRadius: number;
   readonly giveUpRadius: number;
   readonly territoryRadius: number;
+  readonly reactionDelayMs: number;
   readonly alertDurationMs: number;
   readonly chaseDurationMs: number;
   readonly restDurationMs: number;
@@ -237,6 +264,46 @@ export interface GeneratedDecoration {
   readonly rotation: number;
 }
 
+export type BerryBushState = 'ripe' | 'empty';
+
+export interface GeneratedBerryBush {
+  readonly id: string;
+  readonly chunkKey: ChunkKey;
+  readonly x: number;
+  readonly y: number;
+  readonly maxFood: number;
+}
+
+export interface GeneratedGrassPatch {
+  readonly id: string;
+  readonly chunkKey: ChunkKey;
+  readonly x: number;
+  readonly y: number;
+  readonly scale: number;
+  readonly rotation: number;
+}
+
+export interface GrassPatchRuntimeSnapshot extends GeneratedGrassPatch {
+  readonly grazingProgress: number;
+  readonly consumerIds: readonly string[];
+}
+
+export interface BerryBushRuntimeSnapshot extends GeneratedBerryBush {
+  readonly state: BerryBushState;
+  readonly remainingFood: number;
+  readonly regrowRemainingMs: number;
+  readonly wildlifeConsumerId: string | null;
+  readonly playerConsuming: boolean;
+}
+
+export interface PlayerForagingSnapshot {
+  readonly active: boolean;
+  readonly berryId: string | null;
+  readonly remainingFood: number;
+  readonly maxFood: number;
+  readonly progress: number;
+}
+
 export interface GeneratedWildlifeSpawn {
   readonly id: string;
   readonly species: WildlifeSpeciesId;
@@ -246,6 +313,7 @@ export interface GeneratedWildlifeSpawn {
   readonly y: number;
   readonly homeX: number;
   readonly homeY: number;
+  readonly sizeScale: number;
   readonly priority: number;
 }
 
@@ -262,8 +330,17 @@ export interface WildlifeEntitySnapshot {
   readonly velocityX: number;
   readonly velocityY: number;
   readonly facingRadians: number;
+  readonly sizeScale: number;
+  readonly bodyWidth: number;
+  readonly bodyHeight: number;
+  readonly reactionRemainingMs: number;
   readonly targetId: string | 'player' | null;
   readonly path: readonly PointDefinition[];
+}
+
+export interface WildlifeBodySize {
+  readonly width: number;
+  readonly height: number;
 }
 
 export interface WildlifeTelemetry {
@@ -293,6 +370,8 @@ export interface GeneratedChunkData {
   readonly deepWater: readonly boolean[];
   readonly obstacles: readonly GeneratedObstacle[];
   readonly decorations: readonly GeneratedDecoration[];
+  readonly berryBushes: readonly GeneratedBerryBush[];
+  readonly grassCandidates: readonly GeneratedGrassPatch[];
   readonly wildlifeSpawns: readonly GeneratedWildlifeSpawn[];
   readonly waterColliders: readonly WaterColliderRun[];
   readonly fingerprint: string;
@@ -333,6 +412,11 @@ export interface WorldLayout {
 export interface RuntimeTelemetry {
   readonly fps: number;
   readonly cameraZoom: number;
+  readonly cameraViewIndex: number;
+  readonly cameraHalfWidthWorld: number;
+  readonly cameraHalfWidthBodyMultiplier: number;
+  readonly cameraWorldWidth: number;
+  readonly cameraWorldHeight: number;
 }
 
 export interface WorldGenerationTelemetry {
@@ -345,13 +429,28 @@ export interface WorldGenerationTelemetry {
   readonly lastGenerationMs: number;
   readonly objectCount: number;
   readonly colliderCount: number;
+  readonly resources: SeededResourceTelemetry;
   readonly wildlife: WildlifeTelemetry;
+}
+
+export interface SeededResourceTelemetry {
+  readonly activeRipeBushes: number;
+  readonly activeEmptyBushes: number;
+  readonly modifiedBushes: number;
+  readonly activeConsumers: number;
+  readonly activeGrassPatches: number;
+  readonly grazingGrassPatches: number;
+  readonly grassConsumers: number;
+  readonly grassRefreshes: number;
+  readonly playerInShallowWater: boolean;
 }
 
 export interface GameSnapshot {
   readonly phase: GamePhase;
   readonly player: PlayerState;
   readonly survival: SurvivalState;
+  readonly dayNight: DayNightState;
+  readonly foraging: PlayerForagingSnapshot;
   readonly runtime: RuntimeTelemetry;
   readonly world: WorldGenerationTelemetry;
 }
@@ -361,13 +460,18 @@ export interface TuyeDebugApi {
   getConfig(): Readonly<GameConfig>;
   teleport(index: number): void;
   resetPlayer(): void;
-  setZoom(zoom: number): void;
+  setViewRange(multiplier: number): void;
   getChunkFingerprint(x: number, y: number): string | undefined;
   getChunkData(x: number, y: number): Readonly<GeneratedChunkData> | undefined;
   teleportToWorld(x: number, y: number): void;
   teleportToChunk(x: number, y: number): void;
   refreshWorld(): void;
   getWildlifeSnapshots(): readonly Readonly<WildlifeEntitySnapshot>[];
+  getBerrySnapshots(): readonly Readonly<BerryBushRuntimeSnapshot>[];
+  teleportToBerry(id: string): void;
+  getGrassSnapshots(): readonly Readonly<GrassPatchRuntimeSnapshot>[];
+  teleportToGrass(id: string): void;
+  setSurvival(update: Partial<SurvivalState>): void;
   teleportToWildlife(id: string): void;
 }
 

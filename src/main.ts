@@ -8,6 +8,9 @@ import { cloneGameConfig } from './game/config/GameConfig';
 import { loadActiveGameConfig } from './game/config/devPresets';
 import { touchInput } from './game/input/TouchInputState';
 import { gameStore } from './game/state/GameStore';
+import { SessionTimer } from './game/state/SessionTimer';
+import { berryWorldSessions } from './game/resources/BerryResourceSystem';
+import { grassWorldSessions } from './game/resources/GrassResourceSystem';
 import type { GameSnapshot, WorldLaunchRequest } from './game/types';
 import { WorldSession } from './game/world/WorldSession';
 import { attachViewportSync } from './phaser/ViewportSync';
@@ -35,6 +38,7 @@ const titleMusic = new LoopingMusic(ASSET_URLS.titleMusic, gameConfig.audio.titl
 let assetsReady = false;
 let debugVisible = false;
 const worldSession = new WorldSession(typeof localStorage === 'undefined' ? undefined : localStorage);
+const sessionTimer = new SessionTimer();
 
 const game = new Phaser.Game({
   type: Phaser.AUTO,
@@ -77,6 +81,16 @@ const startGame = (request: WorldLaunchRequest): void => {
     return;
   }
   if (!worldSession.select(request)) return;
+  if (worldSession.request.mode === 'seeded' && worldSession.request.seed) {
+    berryWorldSessions.reset(worldSession.request.seed);
+    grassWorldSessions.reset(worldSession.request.seed);
+  }
+  gameStore.resetSurvival();
+  gameStore.resetDayNight(gameConfig.dayNight);
+  ui.updateDayNight(gameStore.getSnapshot().dayNight);
+  sessionTimer.reset();
+  sessionTimer.start();
+  ui.updateSessionElapsed(0);
   getWorldScene()?.setLaunchRequest(worldSession.request);
   ui.setWorld(worldSession.request);
   void titleMusic.stop();
@@ -90,6 +104,8 @@ const pauseGame = (): void => {
     return;
   }
   getWorldScene()?.clearInput();
+  sessionTimer.pause();
+  ui.updateSessionElapsed(sessionTimer.getElapsedMs());
   game.scene.pause(WorldScene.KEY);
   gameStore.transition('paused');
   void ambience.pause();
@@ -100,6 +116,7 @@ const continueGame = (): void => {
     return;
   }
   getWorldScene()?.clearInput();
+  sessionTimer.start();
   game.scene.resume(WorldScene.KEY);
   gameStore.transition('playing');
   void ambience.resume();
@@ -111,7 +128,16 @@ const restartGame = (): void => {
     return;
   }
   gameStore.transition('resetting');
+  if (worldSession.request.mode === 'seeded' && worldSession.request.seed) {
+    berryWorldSessions.reset(worldSession.request.seed);
+    grassWorldSessions.reset(worldSession.request.seed);
+  }
   gameStore.resetSurvival();
+  gameStore.resetDayNight(gameConfig.dayNight);
+  ui.updateDayNight(gameStore.getSnapshot().dayNight);
+  sessionTimer.reset();
+  sessionTimer.start();
+  ui.updateSessionElapsed(0);
   getWorldScene()?.setLaunchRequest(worldSession.request);
   game.scene.stop(WorldScene.KEY);
   game.scene.start(WorldScene.KEY);
@@ -121,9 +147,16 @@ const restartGame = (): void => {
 const applyWorldSeed = (seed: string): void => {
   const phase = gameStore.getPhase();
   if ((phase !== 'playing' && phase !== 'paused') || !worldSession.select({ mode: 'seeded', seed })) return;
+  berryWorldSessions.reset(seed);
+  grassWorldSessions.reset(seed);
   ui.setWorld(worldSession.request);
   gameStore.transition('resetting');
   gameStore.resetSurvival();
+  gameStore.resetDayNight(gameConfig.dayNight);
+  ui.updateDayNight(gameStore.getSnapshot().dayNight);
+  sessionTimer.reset();
+  sessionTimer.start();
+  ui.updateSessionElapsed(0);
   getWorldScene()?.setLaunchRequest(worldSession.request);
   game.scene.stop(WorldScene.KEY);
   game.scene.start(WorldScene.KEY);
@@ -136,6 +169,8 @@ const returnToTitle = (): void => {
     return;
   }
   game.scene.stop(WorldScene.KEY);
+  sessionTimer.reset();
+  ui.updateSessionElapsed(0);
   gameStore.transition('title');
   void ambience.stop();
   void titleMusic.start();
@@ -169,6 +204,8 @@ game.events.on('world-ready', () => {
 
 game.events.on('world-snapshot', (snapshot: Readonly<GameSnapshot>) => {
   ui.updateSurvival(snapshot.survival);
+  ui.updateDayNight(snapshot.dayNight);
+  ui.updateForaging(snapshot.foraging);
   ui.updateDebug(snapshot);
 });
 
@@ -272,13 +309,18 @@ if (import.meta.env.DEV) {
     getConfig: () => cloneGameConfig(gameConfig),
     teleport: (index) => getWorldScene()?.teleport(index),
     resetPlayer: () => getWorldScene()?.resetPlayer(),
-    setZoom: (zoom) => getWorldScene()?.setZoom(zoom),
+    setViewRange: (multiplier) => getWorldScene()?.setViewRange(multiplier),
     getChunkFingerprint: (x, y) => getWorldScene()?.getChunkFingerprint(x, y),
     getChunkData: (x, y) => getWorldScene()?.getChunkData(x, y),
     teleportToWorld: (x, y) => getWorldScene()?.teleportToWorld(x, y),
     teleportToChunk: (x, y) => getWorldScene()?.teleportToChunk(x, y),
     refreshWorld: () => getWorldScene()?.refreshWorld(),
     getWildlifeSnapshots: () => getWorldScene()?.getWildlifeSnapshots() ?? [],
+    getBerrySnapshots: () => getWorldScene()?.getBerrySnapshots() ?? [],
+    teleportToBerry: (id) => getWorldScene()?.teleportToBerry(id),
+    getGrassSnapshots: () => getWorldScene()?.getGrassSnapshots() ?? [],
+    teleportToGrass: (id) => getWorldScene()?.teleportToGrass(id),
+    setSurvival: (update) => gameStore.updateSurvival(update),
     teleportToWildlife: (id) => getWorldScene()?.teleportToWildlife(id),
   };
 }

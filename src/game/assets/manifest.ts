@@ -11,6 +11,7 @@ import healthIconUrl from '../../../art/ui/icons/生命图标1.png?url';
 import foodIconUrl from '../../../art/ui/icons/卡通苹果1.png?url';
 import waterIconUrl from '../../../art/ui/icons/水滴图标1.png?url';
 import staminaIconUrl from '../../../art/ui/icons/耐力图标1.png?url';
+import ylLogoUrl from '../../../art/ui/icons/YLlogo1.png?url';
 import backgroundMusicUrl from '../../../music/平静-悠然1.ogg?url';
 import titleMusicUrl from '../../../music/悠闲-悠然_1.ogg?url';
 
@@ -37,6 +38,7 @@ export const ASSET_URLS = {
   foodIcon: foodIconUrl,
   waterIcon: waterIconUrl,
   staminaIcon: staminaIconUrl,
+  ylLogo: ylLogoUrl,
   backgroundMusic: backgroundMusicUrl,
   titleMusic: titleMusicUrl,
 } as const;

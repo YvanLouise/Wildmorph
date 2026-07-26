@@ -4,6 +4,7 @@ import type {
   GeneratedWildlifeSpawn,
   PointDefinition,
   WildlifeBehaviorState,
+  WildlifeBodySize,
   WildlifeEntitySnapshot,
   WildlifeGlobalConfig,
   WildlifeSpeciesId,
@@ -11,6 +12,13 @@ import type {
 } from '../types';
 import { hashText32 } from '../world/seed';
 import { NavigationField } from './NavigationField';
+import type { BerryTargetAssignments } from '../resources/BerryResourceSystem';
+import type { GrassTargetAssignments } from '../resources/GrassResourceSystem';
+
+export interface WildlifeForageAssignments {
+  readonly berries: BerryTargetAssignments;
+  readonly grass: GrassTargetAssignments;
+}
 
 interface MutableWildlifeEntity {
   readonly spawn: GeneratedWildlifeSpawn;
@@ -23,6 +31,9 @@ interface MutableWildlifeEntity {
   velocityY: number;
   facingRadians: number;
   targetId: string | 'player' | null;
+  reactionKind: 'threat' | 'prey' | null;
+  reactionTargetId: string | 'player' | null;
+  reactionDueAt: number;
   active: boolean;
   stateSince: number;
   stateUntil: number;
@@ -51,18 +62,31 @@ function distance(a: PointDefinition, b: PointDefinition): number {
   return Math.hypot(a.x - b.x, a.y - b.y);
 }
 
+export const WILDLIFE_MAX_TURN_RADIANS_PER_SECOND = Math.PI * 2;
+
+function turnTowards(current: number, target: number, maximumDelta: number): number {
+  const delta = Math.atan2(Math.sin(target - current), Math.cos(target - current));
+  const next = current + Math.max(-maximumDelta, Math.min(maximumDelta, delta));
+  return Math.atan2(Math.sin(next), Math.cos(next));
+}
+
 export class WildlifeSystem {
   private readonly entities = new Map<string, MutableWildlifeEntity>();
   private readonly chunkEntities = new Map<ChunkKey, Set<string>>();
+  private readonly detachedEntities = new Set<string>();
   private accumulatorMs = 0;
   private simulationTimeMs = 0;
   private pathBudget = 0;
   private pathDeadline = 0;
   private telemetryValue: WildlifeTelemetry = ZERO_TELEMETRY;
+  private berryAssignments: BerryTargetAssignments = new Map();
+  private grassAssignments: GrassTargetAssignments = new Map();
 
   constructor(
     private readonly config: WildlifeGlobalConfig,
     private readonly navigation: NavigationField,
+    private readonly bodySizes: Readonly<Partial<Record<WildlifeSpeciesId, WildlifeBodySize>>> = {},
+    private readonly playerBodySize: WildlifeBodySize = { width: 28, height: 32 },
   ) {}
 
   mountChunk(data: GeneratedChunkData): void {
@@ -70,7 +94,10 @@ export class WildlifeSystem {
     const ids = new Set<string>();
     for (const spawn of data.wildlifeSpawns) {
       ids.add(spawn.id);
-      if (this.entities.has(spawn.id)) continue;
+      if (this.entities.has(spawn.id)) {
+        this.detachedEntities.delete(spawn.id);
+        continue;
+      }
       const offset = Math.floor(unitFromText(`${spawn.id}:decision`) * this.config.decisionIntervalMs);
       this.entities.set(spawn.id, {
         spawn,
@@ -83,6 +110,9 @@ export class WildlifeSystem {
         velocityY: 0,
         facingRadians: Math.PI,
         targetId: null,
+        reactionKind: null,
+        reactionTargetId: null,
+        reactionDueAt: 0,
         active: false,
         stateSince: 0,
         stateUntil: 600 + unitFromText(`${spawn.id}:idle`) * 1000,
@@ -97,7 +127,15 @@ export class WildlifeSystem {
   }
 
   unmountChunk(key: ChunkKey): void {
-    for (const id of this.chunkEntities.get(key) ?? []) this.entities.delete(id);
+    for (const id of this.chunkEntities.get(key) ?? []) {
+      const entity = this.entities.get(id);
+      if (entity?.active && this.navigation.chunkKeyAt(entity) !== key) {
+        this.detachedEntities.add(id);
+        continue;
+      }
+      this.entities.delete(id);
+      this.detachedEntities.delete(id);
+    }
     this.chunkEntities.delete(key);
     this.navigation.removeChunk(key);
   }
@@ -105,13 +143,20 @@ export class WildlifeSystem {
   clear(): void {
     this.entities.clear();
     this.chunkEntities.clear();
+    this.detachedEntities.clear();
     this.navigation.clear();
     this.accumulatorMs = 0;
     this.simulationTimeMs = 0;
     this.telemetryValue = ZERO_TELEMETRY;
   }
 
-  update(deltaMs: number, player: PointDefinition): void {
+  update(
+    deltaMs: number,
+    player: PointDefinition,
+    forageAssignments: WildlifeForageAssignments = { berries: new Map(), grass: new Map() },
+  ): void {
+    this.berryAssignments = forageAssignments.berries;
+    this.grassAssignments = forageAssignments.grass;
     this.accumulatorMs = Math.min(this.accumulatorMs + Math.max(0, deltaMs), this.config.simulationStepMs * 4);
     let steps = 0;
     const started = performance.now();
@@ -131,7 +176,9 @@ export class WildlifeSystem {
   snapshots(): readonly Readonly<WildlifeEntitySnapshot>[] {
     return [...this.entities.values()]
       .filter((entity) => entity.active)
-      .map((entity) => ({
+      .map((entity) => {
+        const body = this.snapshotBody(entity);
+        return {
         id: entity.spawn.id,
         species: entity.spawn.species,
         state: entity.state,
@@ -144,9 +191,14 @@ export class WildlifeSystem {
         velocityX: entity.velocityX,
         velocityY: entity.velocityY,
         facingRadians: entity.facingRadians,
-        targetId: entity.targetId,
+        sizeScale: entity.spawn.sizeScale,
+        bodyWidth: body.width,
+        bodyHeight: body.height,
+        reactionRemainingMs: Math.max(0, entity.reactionDueAt - this.simulationTimeMs),
+        targetId: entity.targetId ?? entity.reactionTargetId,
         path: entity.path.slice(entity.pathIndex).map((point) => ({ ...point })),
-      }))
+        };
+      })
       .sort((a, b) => a.id.localeCompare(b.id));
   }
 
@@ -169,6 +221,11 @@ export class WildlifeSystem {
         entity.velocityX = 0;
         entity.velocityY = 0;
       }
+    }
+    for (const id of this.detachedEntities) {
+      if (this.entities.get(id)?.active) continue;
+      this.entities.delete(id);
+      this.detachedEntities.delete(id);
     }
 
     const active = candidates.slice(0, this.config.maxActiveAnimals);
@@ -195,12 +252,17 @@ export class WildlifeSystem {
       } else if (entity.state === 'alert' && this.simulationTimeMs >= entity.stateUntil) {
         this.transition(entity, 'flee', threat.id, config.cooldownMs);
       } else if (entity.state !== 'flee' && entity.state !== 'alert') {
-        this.transition(entity, 'alert', threat.id, config.alertDurationMs);
+        if (config.reactionDelayMs === 0 || this.reactionReady(entity, 'threat', threat.id)) {
+          this.transition(entity, 'alert', threat.id, config.alertDurationMs);
+        } else {
+          this.scheduleReaction(entity, 'threat', threat.id, config.reactionDelayMs);
+        }
       } else {
         entity.targetId = threat.id;
       }
       return;
     }
+    this.clearReaction(entity, 'threat');
 
     if (config.role === 'predator' || config.role === 'mesopredator') {
       const target = this.findPrey(entity, active, player);
@@ -217,9 +279,42 @@ export class WildlifeSystem {
         return;
       }
       if (target && this.simulationTimeMs >= entity.cooldownUntil && entity.state !== 'alert' && entity.state !== 'stalk') {
-        this.transition(entity, config.role === 'mesopredator' ? 'stalk' : 'alert', target.id, config.alertDurationMs);
+        if (config.reactionDelayMs === 0 || this.reactionReady(entity, 'prey', target.id)) {
+          this.transition(entity, config.role === 'mesopredator' ? 'stalk' : 'alert', target.id, config.alertDurationMs);
+        } else {
+          this.scheduleReaction(entity, 'prey', target.id, config.reactionDelayMs);
+        }
         return;
       }
+      if (!target) this.clearReaction(entity, 'prey');
+    }
+
+    const berryTarget = config.eatsBerries ? this.berryAssignments.get(entity.spawn.id) : undefined;
+    if (berryTarget) {
+      this.transition(
+        entity,
+        distance(entity, berryTarget) <= berryTarget.interactionRadius ? 'eat-berry' : 'seek-berry',
+        berryTarget.id,
+        this.config.decisionIntervalMs * 2,
+      );
+      return;
+    }
+    if (entity.state === 'seek-berry' || entity.state === 'eat-berry') {
+      this.transition(entity, 'idle', null, 0);
+    }
+
+    const grassTarget = config.eatsGrass ? this.grassAssignments.get(entity.spawn.id) : undefined;
+    if (grassTarget) {
+      this.transition(
+        entity,
+        distance(entity, grassTarget) <= grassTarget.interactionRadius ? 'eat-grass' : 'seek-grass',
+        grassTarget.id,
+        this.config.decisionIntervalMs * 2,
+      );
+      return;
+    }
+    if (entity.state === 'seek-grass' || entity.state === 'eat-grass') {
+      this.transition(entity, 'idle', null, 0);
     }
 
     if (entity.state === 'flee') {
@@ -301,6 +396,9 @@ export class WildlifeSystem {
     entity.stateUntil = this.simulationTimeMs + durationMs;
     entity.path = [];
     entity.pathIndex = 0;
+    entity.reactionKind = null;
+    entity.reactionTargetId = null;
+    entity.reactionDueAt = 0;
     if (state === 'idle' || state === 'rest' || state === 'alert') entity.wanderTarget = undefined;
   }
 
@@ -338,6 +436,10 @@ export class WildlifeSystem {
       speed = entity.state === 'chase' ? config.chaseSpeed : config.walkSpeed * 0.72;
     } else if (entity.state === 'return') {
       target = { x: entity.spawn.homeX, y: entity.spawn.homeY };
+    } else if (entity.state === 'seek-berry') {
+      target = this.berryAssignments.get(entity.spawn.id);
+    } else if (entity.state === 'seek-grass') {
+      target = this.grassAssignments.get(entity.spawn.id);
     } else if (entity.state === 'wander' || entity.state === 'forage') {
       target = entity.wanderTarget;
       if (entity.state === 'forage') speed *= 0.55;
@@ -346,12 +448,22 @@ export class WildlifeSystem {
         .sort((a, b) => a.spawn.id.localeCompare(b.spawn.id))[0];
       if (leader && leader !== entity && distance(entity, leader) > 104) target = leader;
     }
-    if (!target || ['idle', 'rest', 'alert'].includes(entity.state)) {
+    if (!target || ['idle', 'rest', 'alert', 'eat-berry', 'eat-grass'].includes(entity.state)) {
       entity.velocityX = 0;
       entity.velocityY = 0;
       return;
     }
-    if (distance(entity, target) < 12) {
+    const arrivalDistance = entity.state === 'seek-berry'
+      ? this.berryAssignments.get(entity.spawn.id)?.interactionRadius ?? 12
+      : entity.state === 'seek-grass'
+        ? this.grassAssignments.get(entity.spawn.id)?.interactionRadius ?? 12
+        : 12;
+    if (distance(entity, target) < arrivalDistance) {
+      if (entity.state === 'seek-berry' || entity.state === 'seek-grass') {
+        entity.velocityX = 0;
+        entity.velocityY = 0;
+        return;
+      }
       this.transition(entity, entity.state === 'return' ? 'rest' : 'idle', null, config.restDurationMs * 0.6);
       entity.velocityX = 0;
       entity.velocityY = 0;
@@ -359,9 +471,9 @@ export class WildlifeSystem {
     }
 
     let waypoint = target;
-    if (!this.navigation.hasLineOfTravel(entity, target, entity.spawn.species)) {
+    if (!this.navigation.hasLineOfTravel(entity, target, entity.spawn.species, entity.spawn.sizeScale)) {
       if (entity.pathIndex >= entity.path.length && this.pathBudget > 0 && performance.now() <= this.pathDeadline) {
-        entity.path = this.navigation.findPath(entity, target, entity.spawn.species);
+        entity.path = this.navigation.findPath(entity, target, entity.spawn.species, entity.spawn.sizeScale);
         entity.pathIndex = 0;
         this.pathBudget -= 1;
       }
@@ -380,15 +492,39 @@ export class WildlifeSystem {
     for (const neighbor of this.nearby(entity, buckets)) {
       if (neighbor === entity) continue;
       const separation = distance(entity, neighbor);
-      if (separation <= 0 || separation >= 38) continue;
-      dx += (entity.x - neighbor.x) / separation * (38 - separation) * 1.8;
-      dy += (entity.y - neighbor.y) / separation * (38 - separation) * 1.8;
+      const entityBody = this.snapshotBody(entity);
+      const neighborBody = this.snapshotBody(neighbor);
+      const separationRadius = (
+        Math.max(entityBody.width, entityBody.height)
+        + Math.max(neighborBody.width, neighborBody.height)
+      ) / 2 + 8;
+      if (separation <= 0 || separation >= separationRadius) continue;
+      dx += (entity.x - neighbor.x) / separation * (separationRadius - separation) * 1.8;
+      dy += (entity.y - neighbor.y) / separation * (separationRadius - separation) * 1.8;
     }
-    const length = Math.hypot(dx, dy) || 1;
-    const velocityX = dx / length * speed;
-    const velocityY = dy / length * speed;
-    const next = { x: entity.x + velocityX * deltaSeconds, y: entity.y + velocityY * deltaSeconds };
-    if (!this.navigation.isWalkable(next, entity.spawn.species)) {
+    const length = Math.hypot(dx, dy);
+    if (length < 0.001) {
+      entity.velocityX = 0;
+      entity.velocityY = 0;
+      return;
+    }
+    const desiredTravelRadians = Math.atan2(dy, dx);
+    const currentTravelRadians = entity.facingRadians + Math.PI / 2;
+    const maximumTurn = WILDLIFE_MAX_TURN_RADIANS_PER_SECOND * deltaSeconds;
+    const travelRadians = turnTowards(currentTravelRadians, desiredTravelRadians, maximumTurn);
+    const velocityX = Math.cos(travelRadians) * speed;
+    const velocityY = Math.sin(travelRadians) * speed;
+    const desired = { x: entity.x + velocityX * deltaSeconds, y: entity.y + velocityY * deltaSeconds };
+    const candidates = [
+      desired,
+      { x: desired.x, y: entity.y },
+      { x: entity.x, y: desired.y },
+    ];
+    const next = candidates.find((candidate) => (
+      this.navigation.isWalkable(candidate, entity.spawn.species, entity.spawn.sizeScale)
+      && !this.isOccupied(entity, candidate, active, player)
+    ));
+    if (!next) {
       entity.velocityX = 0;
       entity.velocityY = 0;
       entity.path = [];
@@ -397,9 +533,80 @@ export class WildlifeSystem {
     }
     entity.x = next.x;
     entity.y = next.y;
-    entity.velocityX = velocityX;
-    entity.velocityY = velocityY;
-    entity.facingRadians = Math.atan2(velocityY, velocityX) - Math.PI / 2;
+    entity.velocityX = (next.x - entity.previousX) / deltaSeconds;
+    entity.velocityY = (next.y - entity.previousY) / deltaSeconds;
+    if (entity.velocityX !== 0 || entity.velocityY !== 0) {
+      const actualFacing = Math.atan2(entity.velocityY, entity.velocityX) - Math.PI / 2;
+      entity.facingRadians = turnTowards(entity.facingRadians, actualFacing, maximumTurn);
+    }
+  }
+
+  private scheduleReaction(
+    entity: MutableWildlifeEntity,
+    kind: 'threat' | 'prey',
+    targetId: string | 'player',
+    delayMs: number,
+  ): void {
+    if (entity.reactionKind === kind && entity.reactionTargetId === targetId) return;
+    entity.reactionKind = kind;
+    entity.reactionTargetId = targetId;
+    entity.reactionDueAt = this.simulationTimeMs + delayMs;
+  }
+
+  private reactionReady(
+    entity: MutableWildlifeEntity,
+    kind: 'threat' | 'prey',
+    targetId: string | 'player',
+  ): boolean {
+    return entity.reactionKind === kind
+      && entity.reactionTargetId === targetId
+      && this.simulationTimeMs >= entity.reactionDueAt;
+  }
+
+  private clearReaction(entity: MutableWildlifeEntity, kind: 'threat' | 'prey'): void {
+    if (entity.reactionKind !== kind) return;
+    entity.reactionKind = null;
+    entity.reactionTargetId = null;
+    entity.reactionDueAt = 0;
+  }
+
+  private snapshotBody(entity: MutableWildlifeEntity): WildlifeBodySize {
+    const body = this.bodySizes[entity.spawn.species] ?? { width: 28, height: 32 };
+    return {
+      width: body.width * entity.spawn.sizeScale,
+      height: body.height * entity.spawn.sizeScale,
+    };
+  }
+
+  private isOccupied(
+    entity: MutableWildlifeEntity,
+    point: PointDefinition,
+    active: readonly MutableWildlifeEntity[],
+    player: PointDefinition,
+  ): boolean {
+    const body = this.snapshotBody(entity);
+    if (this.overlaps(point, body, player, this.playerBodySize)) {
+      const currentlyOverlapping = this.overlaps(entity, body, player, this.playerBodySize);
+      if (!currentlyOverlapping || distance(point, player) <= distance(entity, player)) return true;
+    }
+    for (const neighbor of active) {
+      if (neighbor === entity) continue;
+      const neighborBody = this.snapshotBody(neighbor);
+      if (!this.overlaps(point, body, neighbor, neighborBody)) continue;
+      const currentlyOverlapping = this.overlaps(entity, body, neighbor, neighborBody);
+      if (!currentlyOverlapping || distance(point, neighbor) <= distance(entity, neighbor)) return true;
+    }
+    return false;
+  }
+
+  private overlaps(
+    a: PointDefinition,
+    aBody: WildlifeBodySize,
+    b: PointDefinition,
+    bBody: WildlifeBodySize,
+  ): boolean {
+    return Math.abs(a.x - b.x) < (aBody.width + bBody.width) / 2
+      && Math.abs(a.y - b.y) < (aBody.height + bBody.height) / 2;
   }
 
   private targetPosition(

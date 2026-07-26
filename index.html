@@ -12,6 +12,7 @@
     <div id="app">
       <main id="game-stage" aria-label="蜕野游戏区域">
         <div id="game-root"></div>
+        <div id="day-night-overlay" aria-hidden="true"></div>
         <div id="ui-root" data-phase="title">
           <section id="title-screen" class="screen is-visible" aria-labelledby="game-title">
             <div id="title-frame" class="title-frame">
@@ -21,6 +22,13 @@
                 alt=""
                 decoding="async"
                 fetchpriority="high"
+                draggable="false"
+              />
+              <img
+                id="title-yl-logo"
+                class="title-yl-logo"
+                alt="Yvan Louise"
+                decoding="async"
                 draggable="false"
               />
               <div class="title-accessible-copy">
@@ -84,9 +92,16 @@
           </section>
 
           <section id="game-hud" class="hud" aria-label="游戏信息">
-            <div class="area-chip">
-              <strong>蜕野</strong>
-              <span id="area-name">初生浅林</span>
+            <div class="world-status">
+              <div class="area-chip">
+                <strong>蜕野</strong>
+                <span id="area-name">初生浅林</span>
+              </div>
+              <div id="day-night-hud" class="day-night-hud" aria-label="昼夜时间">
+                <span id="day-night-icon" class="day-night-icon" aria-hidden="true">◒</span>
+                <span id="day-night-phase">黎明</span>
+                <time id="day-night-time" datetime="05:00">05:00</time>
+              </div>
             </div>
             <div id="survival-hud" class="survival-hud" aria-label="生存状态">
               <div id="survival-health" class="survival-item survival-item--health" data-survival-stat="health">
@@ -145,6 +160,11 @@
               </span>
               <span class="touch-controls-copy">左侧滑动：移动 · 右侧按住：冲刺</span>
             </div>
+            <div id="foraging-progress" class="foraging-progress" role="progressbar" aria-label="采食浆果" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-hidden="true">
+              <span>正在采食浆果</span>
+              <div class="foraging-progress-track"><i id="foraging-progress-fill"></i></div>
+              <output id="foraging-progress-value">0%</output>
+            </div>
           </section>
 
           <div id="touch-controls" class="touch-controls" aria-hidden="true">
@@ -166,6 +186,10 @@
             <div class="pause-card">
               <p class="eyebrow">林间静止</p>
               <h2 id="pause-title">暂停</h2>
+              <div class="pause-session-time" aria-label="本局游戏时间">
+                <span>本局时长</span>
+                <time id="session-elapsed-time" datetime="PT0S">00:00</time>
+              </div>
               <div class="pause-actions">
                 <button id="continue-button" class="game-button game-button--primary" type="button">继续</button>
                 <button id="restart-button" class="game-button" type="button">重新开始</button>

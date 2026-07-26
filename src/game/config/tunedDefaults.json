@@ -1,0 +1,610 @@
+{
+  "player": {
+    "moveSpeed": 150,
+    "sprintMultiplier": 1.75
+  },
+  "characterProfiles": {
+    "raccoon": {
+      "anchorY": 0.62
+    },
+    "pig": {
+      "anchorX": 0.49,
+      "anchorY": 0.54,
+      "moveSpeed": 220,
+      "bodyHeight": 41
+    },
+    "white-rabbit": {
+      "anchorY": 0.53,
+      "bodyHeight": 42
+    },
+    "red-fox": {
+      "anchorY": 0.61
+    },
+    "tiger": {
+      "anchorX": 0.53,
+      "anchorY": 0.62
+    },
+    "sika-deer": {
+      "anchorX": 0.51,
+      "anchorY": 0.52
+    },
+    "yellow-fox": {
+      "visualSize": 63,
+      "anchorY": 0.6,
+      "bodyWidth": 26
+    }
+  },
+  "camera": {
+    "viewHalfWidthBodyMultipliers": [
+      10,
+      6,
+      3
+    ]
+  },
+  "survival": {
+    "staminaStationaryRecoveryDelaySeconds": 2,
+    "staminaStationaryRecoveryPerSecond": 15
+  },
+  "dayNight": {
+    "dawnDurationMinutes": 1,
+    "duskDurationMinutes": 1,
+    "nightDarkness": 0.6
+  },
+  "seededResources": {
+    "berryInteractionRadius": 44,
+    "grassSeekChance": 0.44,
+    "grassConsumeSeconds": 8,
+    "grassInteractionRadius": 22
+  },
+  "world": {
+    "obstacles": [
+      {
+        "id": "ancient-tree",
+        "kind": "ancient-tree",
+        "x": 1200,
+        "y": 270,
+        "visualScale": 1.7,
+        "collider": {
+          "shape": "rectangle",
+          "width": 40,
+          "height": 66,
+          "offsetX": 1.2,
+          "offsetY": -55.1
+        }
+      },
+      {
+        "id": "tree-n01",
+        "kind": "tree",
+        "x": 245,
+        "y": 285,
+        "visualScale": 1.08,
+        "collider": {
+          "shape": "rectangle",
+          "width": 34,
+          "height": 26,
+          "offsetX": 2.6,
+          "offsetY": -24.2
+        }
+      },
+      {
+        "id": "tree-n02",
+        "kind": "tree",
+        "x": 420,
+        "y": 170,
+        "visualScale": 0.96,
+        "collider": {
+          "shape": "rectangle",
+          "width": 34,
+          "height": 26,
+          "offsetX": 2.6,
+          "offsetY": -24.2
+        }
+      },
+      {
+        "id": "tree-n03",
+        "kind": "tree",
+        "x": 505,
+        "y": 425,
+        "visualScale": 1.14,
+        "collider": {
+          "shape": "rectangle",
+          "width": 34,
+          "height": 26,
+          "offsetX": 2.6,
+          "offsetY": -24.2
+        }
+      },
+      {
+        "id": "tree-n04",
+        "kind": "tree",
+        "x": 690,
+        "y": 245,
+        "visualScale": 0.9,
+        "collider": {
+          "shape": "rectangle",
+          "width": 34,
+          "height": 26,
+          "offsetX": 2.6,
+          "offsetY": -24.2
+        }
+      },
+      {
+        "id": "tree-n05",
+        "kind": "tree",
+        "x": 815,
+        "y": 520,
+        "visualScale": 1.12,
+        "collider": {
+          "shape": "rectangle",
+          "width": 34,
+          "height": 26,
+          "offsetX": 2.6,
+          "offsetY": -24.2
+        }
+      },
+      {
+        "id": "tree-n06",
+        "kind": "tree",
+        "x": 980,
+        "y": 150,
+        "visualScale": 1.04,
+        "collider": {
+          "shape": "rectangle",
+          "width": 34,
+          "height": 26,
+          "offsetX": 2.6,
+          "offsetY": -24.2
+        }
+      },
+      {
+        "id": "tree-n07",
+        "kind": "tree",
+        "x": 1050,
+        "y": 565,
+        "visualScale": 0.96,
+        "collider": {
+          "shape": "rectangle",
+          "width": 34,
+          "height": 26,
+          "offsetX": 2.6,
+          "offsetY": -24.2
+        }
+      },
+      {
+        "id": "tree-n08",
+        "kind": "tree",
+        "x": 1370,
+        "y": 160,
+        "visualScale": 1.1,
+        "collider": {
+          "shape": "rectangle",
+          "width": 34,
+          "height": 26,
+          "offsetX": 2.6,
+          "offsetY": -24.2
+        }
+      },
+      {
+        "id": "tree-n09",
+        "kind": "tree",
+        "x": 1480,
+        "y": 440,
+        "visualScale": 1.16,
+        "collider": {
+          "shape": "rectangle",
+          "width": 34,
+          "height": 26,
+          "offsetX": 2.6,
+          "offsetY": -24.2
+        }
+      },
+      {
+        "id": "tree-n10",
+        "kind": "tree",
+        "x": 1655,
+        "y": 220,
+        "visualScale": 0.98,
+        "collider": {
+          "shape": "rectangle",
+          "width": 34,
+          "height": 26,
+          "offsetX": 2.6,
+          "offsetY": -24.2
+        }
+      },
+      {
+        "id": "tree-n11",
+        "kind": "tree",
+        "x": 1815,
+        "y": 490,
+        "visualScale": 1.05,
+        "collider": {
+          "shape": "rectangle",
+          "width": 34,
+          "height": 26,
+          "offsetX": 2.6,
+          "offsetY": -24.2
+        }
+      },
+      {
+        "id": "tree-n12",
+        "kind": "tree",
+        "x": 2050,
+        "y": 255,
+        "visualScale": 1.12,
+        "collider": {
+          "shape": "rectangle",
+          "width": 34,
+          "height": 26,
+          "offsetX": 2.6,
+          "offsetY": -24.2
+        }
+      },
+      {
+        "id": "tree-n13",
+        "kind": "tree",
+        "x": 2220,
+        "y": 505,
+        "visualScale": 0.92,
+        "collider": {
+          "shape": "rectangle",
+          "width": 34,
+          "height": 26,
+          "offsetX": 2.6,
+          "offsetY": -24.2
+        }
+      },
+      {
+        "id": "tree-west-01",
+        "kind": "tree",
+        "x": 155,
+        "y": 650,
+        "visualScale": 1.02,
+        "collider": {
+          "shape": "rectangle",
+          "width": 34,
+          "height": 26,
+          "offsetX": 2.6,
+          "offsetY": -24.2
+        }
+      },
+      {
+        "id": "tree-west-02",
+        "kind": "tree",
+        "x": 310,
+        "y": 760,
+        "visualScale": 0.94,
+        "collider": {
+          "shape": "rectangle",
+          "width": 34,
+          "height": 26,
+          "offsetX": 2.6,
+          "offsetY": -24.2
+        }
+      },
+      {
+        "id": "tree-east-01",
+        "kind": "tree",
+        "x": 2280,
+        "y": 1080,
+        "visualScale": 1.04,
+        "collider": {
+          "shape": "rectangle",
+          "width": 34,
+          "height": 26,
+          "offsetX": 2.6,
+          "offsetY": -24.2
+        }
+      },
+      {
+        "id": "rock-sw01",
+        "kind": "rock",
+        "x": 280,
+        "y": 1060,
+        "visualScale": 1.0714285714285714,
+        "collider": {
+          "shape": "circle",
+          "radius": 30
+        }
+      },
+      {
+        "id": "rock-sw02",
+        "kind": "rock",
+        "x": 405,
+        "y": 1160,
+        "visualScale": 0.8571428571428571,
+        "collider": {
+          "shape": "circle",
+          "radius": 24
+        }
+      },
+      {
+        "id": "broken-white-stone",
+        "kind": "white-rock",
+        "x": 520,
+        "y": 1240,
+        "visualScale": 1.7857142857142858,
+        "collider": {
+          "shape": "rectangle",
+          "width": 111,
+          "height": 66,
+          "offsetX": 2.7,
+          "offsetY": -23.2
+        }
+      },
+      {
+        "id": "rock-sw03",
+        "kind": "rock",
+        "x": 680,
+        "y": 1090,
+        "visualScale": 1.2142857142857142,
+        "collider": {
+          "shape": "circle",
+          "radius": 34
+        }
+      },
+      {
+        "id": "rock-sw04",
+        "kind": "rock",
+        "x": 785,
+        "y": 1335,
+        "visualScale": 1.5,
+        "collider": {
+          "shape": "circle",
+          "radius": 42
+        }
+      },
+      {
+        "id": "rock-sw05",
+        "kind": "rock",
+        "x": 920,
+        "y": 1175,
+        "visualScale": 0.9285714285714286,
+        "collider": {
+          "shape": "circle",
+          "radius": 26
+        }
+      },
+      {
+        "id": "rock-sw06",
+        "kind": "rock",
+        "x": 300,
+        "y": 1400,
+        "visualScale": 1.2142857142857142,
+        "collider": {
+          "shape": "circle",
+          "radius": 34
+        }
+      },
+      {
+        "id": "log-sw01",
+        "kind": "fallen-log",
+        "x": 610,
+        "y": 1430,
+        "rotation": -0.18,
+        "collider": {
+          "shape": "rectangle",
+          "width": 112,
+          "height": 44,
+          "offsetX": 1.7,
+          "offsetY": -16.7
+        }
+      },
+      {
+        "id": "log-sw02",
+        "kind": "fallen-log",
+        "x": 830,
+        "y": 1000,
+        "rotation": 0.12,
+        "collider": {
+          "shape": "rectangle",
+          "width": 112,
+          "height": 44,
+          "offsetX": 1.7,
+          "offsetY": -16.7
+        }
+      },
+      {
+        "id": "water-west",
+        "kind": "water",
+        "x": 1805,
+        "y": 780,
+        "collider": {
+          "shape": "circle",
+          "radius": 128
+        },
+        "collisionOnly": true
+      },
+      {
+        "id": "water-center",
+        "kind": "water",
+        "x": 1970,
+        "y": 765,
+        "collider": {
+          "shape": "circle",
+          "radius": 180
+        },
+        "collisionOnly": true
+      },
+      {
+        "id": "water-east",
+        "kind": "water",
+        "x": 2140,
+        "y": 770,
+        "collider": {
+          "shape": "circle",
+          "radius": 120
+        },
+        "collisionOnly": true
+      },
+      {
+        "id": "water-north",
+        "kind": "water",
+        "x": 1970,
+        "y": 635,
+        "collider": {
+          "shape": "rectangle",
+          "width": 235,
+          "height": 105
+        },
+        "collisionOnly": true
+      },
+      {
+        "id": "water-south",
+        "kind": "water",
+        "x": 1980,
+        "y": 900,
+        "collider": {
+          "shape": "rectangle",
+          "width": 250,
+          "height": 92
+        },
+        "collisionOnly": true
+      }
+    ]
+  },
+  "proceduralWorld": {
+    "treeDensity": 0.3,
+    "rockDensity": 0.15,
+    "decorationDensity": 0.6
+  },
+  "worldAssets": {
+    "slots": {
+      "fixed.tree": {
+        "collider": {
+          "offsetX": 2.6,
+          "offsetY": -24.2
+        }
+      },
+      "fixed.ancient-tree": {
+        "collider": {
+          "width": 40,
+          "height": 66,
+          "offsetX": 1.2,
+          "offsetY": -55.1
+        }
+      },
+      "fixed.white-rock": {
+        "collider": {
+          "shape": "rectangle",
+          "width": 111,
+          "height": 66,
+          "offsetX": 2.7,
+          "offsetY": -23.2
+        }
+      },
+      "fixed.fallen-log": {
+        "collider": {
+          "height": 44,
+          "offsetX": 1.7,
+          "offsetY": -16.7
+        }
+      },
+      "seeded.tree.0": {
+        "collider": {
+          "offsetX": 2.6,
+          "offsetY": -23.5
+        }
+      },
+      "seeded.tree.1": {
+        "collider": {
+          "width": 17,
+          "offsetX": 0,
+          "offsetY": -24.8
+        }
+      },
+      "seeded.tree.2": {
+        "collider": {
+          "width": 22,
+          "height": 33,
+          "offsetX": 0,
+          "offsetY": -29.4
+        }
+      },
+      "seeded.tree.3": {
+        "collider": {
+          "width": 22,
+          "height": 33,
+          "offsetX": 0.6,
+          "offsetY": -32
+        }
+      },
+      "seeded.rock.0": {
+        "collider": {
+          "shape": "rectangle",
+          "width": 66,
+          "height": 33,
+          "offsetX": 0.4,
+          "offsetY": -10.2
+        }
+      },
+      "seeded.rock.1": {
+        "collider": {
+          "radius": 29,
+          "offsetX": 0.7,
+          "offsetY": -15
+        }
+      },
+      "seeded.rock.2": {
+        "collider": {
+          "shape": "rectangle",
+          "width": 55,
+          "height": 33,
+          "offsetX": 0,
+          "offsetY": -12.9
+        }
+      },
+      "seeded.rock.3": {
+        "collider": {
+          "radius": 28,
+          "offsetX": 0.3,
+          "offsetY": -16.4
+        }
+      },
+      "seeded.log": {
+        "displaySize": 77,
+        "collider": {
+          "width": 77,
+          "height": 33,
+          "offsetX": 1.1,
+          "offsetY": -12.2
+        }
+      }
+    }
+  },
+  "wildlife": {
+    "maxActiveAnimals": 40,
+    "decisionIntervalMs": 150,
+    "species": {
+      "white-rabbit": {
+        "minSizeScale": 0.4,
+        "maxSizeScale": 0.7,
+        "detectionRadius": 200,
+        "reactionDelayMs": 111
+      },
+      "sika-deer": {
+        "minSizeScale": 0.7,
+        "maxSizeScale": 1,
+        "detectionRadius": 222,
+        "reactionDelayMs": 188
+      },
+      "pig": {
+        "minSizeScale": 0.7,
+        "maxSizeScale": 1
+      },
+      "raccoon": {
+        "minSizeScale": 0.7,
+        "maxSizeScale": 1,
+        "reactionDelayMs": 222
+      },
+      "red-fox": {
+        "minSizeScale": 0.6,
+        "maxSizeScale": 1,
+        "reactionDelayMs": 222
+      },
+      "tiger": {
+        "reactionDelayMs": 333
+      }
+    }
+  }
+}

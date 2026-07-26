@@ -171,6 +171,21 @@ describe('chunk lifecycle bounds', () => {
     }
   });
 
+  it('loads camera-edge chunks without requiring the player to cross a chunk boundary', () => {
+    const manager = new ChunkManager(seed, config);
+    manager.initialize({ x: 0, y: 0 });
+    manager.update({ x: 0, y: 0 }, { x: 0, y: 0 }, {
+      left: -960,
+      top: -540,
+      right: 960,
+      bottom: 540,
+    });
+    for (let index = 0; index < 40; index += 1) manager.processQueue();
+    expect(manager.getChunk({ x: -3, y: -2 })).toBeDefined();
+    expect(manager.activeCount).toBeGreaterThan(25);
+    expect(manager.activeCount).toBeLessThanOrEqual(49);
+  });
+
   it('restores an evicted chunk with the same fingerprint', () => {
     const manager = new ChunkManager(seed, { ...config, cacheSize: 1 });
     const original = manager.initialize({ x: 0, y: 0 }).loaded.find(({ key }) => key === '0,0') as GeneratedChunkData;

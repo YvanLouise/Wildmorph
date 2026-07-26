@@ -3,6 +3,7 @@ import type {
   GeneratedChunkData,
   PointDefinition,
   ProceduralWorldConfig,
+  WildlifeBodySize,
   WildlifeGlobalConfig,
   WildlifeSpeciesId,
 } from '../types';
@@ -22,6 +23,7 @@ export class NavigationField {
   constructor(
     private readonly world: ProceduralWorldConfig,
     private readonly wildlife: WildlifeGlobalConfig,
+    private readonly bodySizes: Readonly<Partial<Record<WildlifeSpeciesId, WildlifeBodySize>>> = {},
   ) {}
 
   addChunk(data: GeneratedChunkData): void {
@@ -36,26 +38,40 @@ export class NavigationField {
     this.chunks.clear();
   }
 
-  isWalkable(point: PointDefinition, species: WildlifeSpeciesId): boolean {
+  chunkKeyAt(point: PointDefinition): ChunkKey {
+    const size = this.world.tileSize * this.world.chunkTiles;
+    return chunkKey(worldToChunk(point, size));
+  }
+
+  isWalkable(point: PointDefinition, species: WildlifeSpeciesId, sizeScale = 1): boolean {
+    const body = this.bodySizes[species] ?? { width: 28, height: 32 };
+    const halfWidth = body.width * sizeScale / 2;
+    const halfHeight = body.height * sizeScale / 2;
+    const terrainSamples = [
+      point,
+      { x: point.x - halfWidth, y: point.y - halfHeight },
+      { x: point.x + halfWidth, y: point.y - halfHeight },
+      { x: point.x - halfWidth, y: point.y + halfHeight },
+      { x: point.x + halfWidth, y: point.y + halfHeight },
+    ];
+    for (const sample of terrainSamples) {
+      const terrain = this.terrainAt(sample);
+      if (!terrain || terrain === 'water' || (terrain === 'mud' && species !== 'pig')) return false;
+    }
     const size = this.world.tileSize * this.world.chunkTiles;
     const coord = worldToChunk(point, size);
-    const chunk = this.chunks.get(chunkKey(coord));
-    if (!chunk) return false;
-    const origin = chunkOrigin(coord, size);
-    const column = Math.floor((point.x - origin.x) / this.world.tileSize);
-    const row = Math.floor((point.y - origin.y) / this.world.tileSize);
-    if (column < 0 || row < 0 || column >= this.world.chunkTiles || row >= this.world.chunkTiles) return false;
-    const terrain = chunk.terrain[row * this.world.chunkTiles + column];
-    if (terrain === 'water' || (terrain === 'mud' && species !== 'pig')) return false;
-    const radius = 18;
     for (let chunkY = coord.y - 1; chunkY <= coord.y + 1; chunkY += 1) {
       for (let chunkX = coord.x - 1; chunkX <= coord.x + 1; chunkX += 1) {
         for (const obstacle of this.chunks.get(chunkKey({ x: chunkX, y: chunkY }))?.obstacles ?? []) {
+          const colliderX = obstacle.x + (obstacle.collider.offsetX ?? 0);
+          const colliderY = obstacle.y + (obstacle.collider.offsetY ?? 0);
           if (obstacle.collider.shape === 'circle') {
-            if (Math.hypot(point.x - obstacle.x, point.y - obstacle.y) < obstacle.collider.radius + radius) return false;
+            const nearestX = Math.max(point.x - halfWidth, Math.min(colliderX, point.x + halfWidth));
+            const nearestY = Math.max(point.y - halfHeight, Math.min(colliderY, point.y + halfHeight));
+            if (Math.hypot(nearestX - colliderX, nearestY - colliderY) < obstacle.collider.radius) return false;
           } else if (
-            Math.abs(point.x - obstacle.x) < obstacle.collider.width / 2 + radius
-            && Math.abs(point.y - obstacle.y) < obstacle.collider.height / 2 + radius
+            Math.abs(point.x - colliderX) < obstacle.collider.width / 2 + halfWidth
+            && Math.abs(point.y - colliderY) < obstacle.collider.height / 2 + halfHeight
           ) return false;
         }
       }
@@ -63,7 +79,19 @@ export class NavigationField {
     return true;
   }
 
-  hasLineOfTravel(from: PointDefinition, to: PointDefinition, species: WildlifeSpeciesId): boolean {
+  private terrainAt(point: PointDefinition) {
+    const size = this.world.tileSize * this.world.chunkTiles;
+    const coord = worldToChunk(point, size);
+    const chunk = this.chunks.get(chunkKey(coord));
+    if (!chunk) return undefined;
+    const origin = chunkOrigin(coord, size);
+    const column = Math.floor((point.x - origin.x) / this.world.tileSize);
+    const row = Math.floor((point.y - origin.y) / this.world.tileSize);
+    if (column < 0 || row < 0 || column >= this.world.chunkTiles || row >= this.world.chunkTiles) return undefined;
+    return chunk.terrain[row * this.world.chunkTiles + column];
+  }
+
+  hasLineOfTravel(from: PointDefinition, to: PointDefinition, species: WildlifeSpeciesId, sizeScale = 1): boolean {
     const distance = Math.hypot(to.x - from.x, to.y - from.y);
     const samples = Math.max(1, Math.ceil(distance / (this.world.tileSize * 0.5)));
     for (let index = 1; index <= samples; index += 1) {
@@ -71,12 +99,12 @@ export class NavigationField {
       if (!this.isWalkable({
         x: from.x + (to.x - from.x) * progress,
         y: from.y + (to.y - from.y) * progress,
-      }, species)) return false;
+      }, species, sizeScale)) return false;
     }
     return true;
   }
 
-  findPath(from: PointDefinition, desiredTarget: PointDefinition, species: WildlifeSpeciesId): PointDefinition[] {
+  findPath(from: PointDefinition, desiredTarget: PointDefinition, species: WildlifeSpeciesId, sizeScale = 1): PointDefinition[] {
     const tile = this.world.tileSize;
     const startX = Math.floor(from.x / tile);
     const startY = Math.floor(from.y / tile);
@@ -108,7 +136,7 @@ export class NavigationField {
         const y = current.y + offsetY;
         if (Math.abs(x - startX) > limit || Math.abs(y - startY) > limit) continue;
         const point = { x: (x + 0.5) * tile, y: (y + 0.5) * tile };
-        if (!this.isWalkable(point, species)) continue;
+        if (!this.isWalkable(point, species, sizeScale)) continue;
         const g = current.g + 1;
         const key = keyFor(x, y);
         if ((best.get(key) ?? Infinity) <= g) continue;

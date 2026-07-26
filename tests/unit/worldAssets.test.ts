@@ -5,8 +5,8 @@ import { cloneGameConfig, DEFAULT_GAME_CONFIG, validateGameConfig } from '../../
 
 describe('world image assets', () => {
   it('defines every fixed and seeded slot with valid defaults', () => {
-    expect(WORLD_ASSET_SLOT_DEFINITIONS).toHaveLength(24);
-    expect(Object.keys(DEFAULT_WORLD_ASSET_CONFIG.slots)).toHaveLength(24);
+    expect(WORLD_ASSET_SLOT_DEFINITIONS).toHaveLength(26);
+    expect(Object.keys(DEFAULT_WORLD_ASSET_CONFIG.slots)).toHaveLength(26);
     expect(validateGameConfig(DEFAULT_GAME_CONFIG).errors).toEqual([]);
   });
 

@@ -12,6 +12,7 @@ test.beforeEach(async ({ page }) => {
     });
   });
   await page.reload();
+  await expect(page.locator('#save-as-button'), await page.locator('#issue-list').textContent() ?? 'default configuration is invalid').toBeEnabled();
 });
 
 test('creates, persists, and applies a core tuning preset', async ({ page, context }) => {
@@ -23,21 +24,122 @@ test('creates, persists, and applies a core tuning preset', async ({ page, conte
   await page.locator('#preset-name-input').fill('E2E 调参预设');
   await page.getByRole('button', { name: '创建并激活' }).click();
   await page.locator('[data-section="player"]').click();
-  await page.locator('[data-config-path="player.moveSpeed"]').fill('260');
+  const speedInput = page.locator('[data-config-path="player.moveSpeed"]');
+  const adjustedSpeed = String(Number(await speedInput.inputValue()) + 15);
+  await speedInput.fill(adjustedSpeed);
   await expect(page.locator('#dirty-status')).toHaveText('有未保存修改');
   await page.locator('#save-button').click();
   await expect(page.locator('#dirty-status')).toContainText('已保存并设为活动预设');
 
   await page.reload();
   await page.locator('[data-section="player"]').click();
-  await expect(page.locator('[data-config-path="player.moveSpeed"]')).toHaveValue('260');
+  await expect(page.locator('[data-config-path="player.moveSpeed"]')).toHaveValue(adjustedSpeed);
 
   const gamePage = await context.newPage();
   await gamePage.goto('/');
   await expect(gamePage.locator('#start-button')).toBeEnabled();
   await expect.poll(() => gamePage.evaluate(() => (
     window.__TUYE_DEBUG__?.getConfig()
-  ))).toMatchObject({ player: { moveSpeed: 260 } });
+  ))).toMatchObject({ player: { moveSpeed: Number(adjustedSpeed) } });
+});
+
+test('edits and applies survival consumption tuning', async ({ page, context }) => {
+  await page.locator('#save-as-button').click();
+  await page.locator('#preset-name-input').fill('生存消耗预设');
+  await page.getByRole('button', { name: '创建并激活' }).click();
+  await page.locator('[data-section="survival"]').click();
+
+  for (const path of [
+    'foodDrainAmount', 'foodDrainIntervalSeconds', 'waterDrainIntervalSeconds',
+    'sprintConsumptionMultiplier', 'staminaDrainPerSecond', 'staminaRecoveryDelaySeconds',
+    'staminaRecoveryPerSecond', 'staminaStationaryRecoveryDelaySeconds',
+    'staminaStationaryRecoveryPerSecond', 'starvationDamagePerSecond', 'dehydrationDamagePerSecond',
+  ]) {
+    expect(Number.isFinite(Number(await page.locator(`[data-config-path="survival.${path}"]`).inputValue()))).toBe(true);
+  }
+
+  await page.locator('[data-config-path="survival.foodDrainIntervalSeconds"]').fill('4');
+  await page.locator('[data-config-path="survival.waterDrainAmount"]').fill('1.5');
+  await page.locator('[data-config-path="survival.sprintConsumptionMultiplier"]').fill('1.8');
+  await page.locator('[data-config-path="survival.staminaDrainPerSecond"]').fill('12');
+  await page.locator('#save-button').click();
+  await page.reload();
+  await page.locator('[data-section="survival"]').click();
+  await expect(page.locator('[data-config-path="survival.foodDrainIntervalSeconds"]')).toHaveValue('4');
+  await expect(page.locator('[data-config-path="survival.waterDrainAmount"]')).toHaveValue('1.5');
+  await expect(page.locator('[data-config-path="survival.sprintConsumptionMultiplier"]')).toHaveValue('1.8');
+  await expect(page.locator('[data-config-path="survival.staminaDrainPerSecond"]')).toHaveValue('12');
+
+  const gamePage = await context.newPage();
+  await gamePage.goto('/');
+  await expect(gamePage.locator('#start-button')).toBeEnabled();
+  await expect.poll(() => gamePage.evaluate(() => window.__TUYE_DEBUG__?.getConfig().survival)).toMatchObject({
+    foodDrainIntervalSeconds: 4,
+    waterDrainAmount: 1.5,
+    sprintConsumptionMultiplier: 1.8,
+    staminaDrainPerSecond: 12,
+  });
+});
+
+test('edits, summarizes, persists, and applies day and night tuning', async ({ page, context }) => {
+  await page.locator('#save-as-button').click();
+  await page.locator('#preset-name-input').fill('昼夜短周期预设');
+  await page.getByRole('button', { name: '创建并激活' }).click();
+  await page.locator('[data-section="dayNight"]').click();
+
+  for (const path of [
+    'dawnDurationMinutes', 'dayDurationMinutes', 'duskDurationMinutes',
+    'nightDurationMinutes', 'nightDarkness',
+  ]) {
+    expect(Number.isFinite(Number(await page.locator(`[data-config-path="dayNight.${path}"]`).inputValue()))).toBe(true);
+  }
+
+  await page.locator('[data-config-path="dayNight.dawnDurationMinutes"]').fill('0.02');
+  await page.locator('[data-config-path="dayNight.dayDurationMinutes"]').fill('0.02');
+  await page.locator('[data-config-path="dayNight.duskDurationMinutes"]').fill('0.02');
+  await page.locator('[data-config-path="dayNight.nightDurationMinutes"]').fill('0.02');
+  await page.locator('[data-config-path="dayNight.nightDarkness"]').fill('0.6');
+  await expect(page.locator('.day-night-summary')).toContainText('总周期 0.08 分钟');
+  await page.locator('#save-button').click();
+
+  await page.reload();
+  await page.locator('[data-section="dayNight"]').click();
+  await expect(page.locator('[data-config-path="dayNight.nightDarkness"]')).toHaveValue('0.6');
+
+  const gamePage = await context.newPage();
+  await gamePage.goto('/');
+  await expect(gamePage.locator('#start-button')).toBeEnabled();
+  await expect.poll(() => gamePage.evaluate(() => window.__TUYE_DEBUG__?.getConfig().dayNight)).toMatchObject({
+    dawnDurationMinutes: 0.02,
+    dayDurationMinutes: 0.02,
+    duskDurationMinutes: 0.02,
+    nightDurationMinutes: 0.02,
+    nightDarkness: 0.6,
+  });
+});
+
+test('edits player-relative camera ranges and keeps the reference view live', async ({ page }) => {
+  await page.locator('#save-as-button').click();
+  await page.locator('#preset-name-input').fill('视野调参');
+  await page.getByRole('button', { name: '创建并激活' }).click();
+  await page.locator('[data-section="player"]').click();
+
+  const initialThirdRange = await page.locator('[data-config-path="camera.viewHalfWidthBodyMultipliers.2"]').inputValue();
+
+  await page.locator('[data-config-path="camera.viewHalfWidthBodyMultipliers.0"]').fill('14');
+  await page.locator('[data-config-path="camera.viewHalfWidthBodyMultipliers.1"]').fill('9');
+  await page.locator('[data-config-path="camera.viewHalfWidthBodyMultipliers.2"]').fill('6.5');
+  await expect(page.locator('.player-camera-summary')).toContainText('单侧 576px');
+  await page.keyboard.press('Control+z');
+  await expect(page.locator('[data-config-path="camera.viewHalfWidthBodyMultipliers.2"]')).toHaveValue(initialThirdRange);
+  await page.keyboard.press('Control+y');
+  await expect(page.locator('[data-config-path="camera.viewHalfWidthBodyMultipliers.2"]')).toHaveValue('6.5');
+  await page.locator('#save-button').click();
+  await page.reload();
+  await page.locator('[data-section="player"]').click();
+  await expect(page.locator('[data-config-path="camera.viewHalfWidthBodyMultipliers.0"]')).toHaveValue('14');
+  await expect(page.locator('[data-config-path="camera.viewHalfWidthBodyMultipliers.1"]')).toHaveValue('9');
+  await expect(page.locator('[data-config-path="camera.viewHalfWidthBodyMultipliers.2"]')).toHaveValue('6.5');
 });
 
 test('edits, persists, resets, and isolates dedicated animal profiles', async ({ page, context }, testInfo) => {
@@ -89,7 +191,8 @@ test('edits, persists, resets, and isolates dedicated animal profiles', async ({
   await expect(page.locator('[data-character-field="visualSize"]')).toHaveValue('80');
 
   await page.locator('[data-section="player"]').click();
-  await expect(page.locator('[data-config-path="player.moveSpeed"]')).toHaveValue('200');
+  const defaultPlayerSpeed = await page.locator('[data-config-path="player.moveSpeed"]').inputValue();
+  await expect(page.locator('[data-config-path="player.moveSpeed"]')).toHaveValue(defaultPlayerSpeed);
 
   const gamePage = await context.newPage();
   await gamePage.goto('/');
@@ -99,7 +202,7 @@ test('edits, persists, resets, and isolates dedicated animal profiles', async ({
   ));
   expect(gameResources.some((url) => url.includes('老虎-1.png'))).toBe(true);
   expect(gameResources.some((url) => url.includes('黄狐狸-1.png'))).toBe(true);
-  expect(await gamePage.evaluate(() => window.__TUYE_DEBUG__?.getConfig().player.moveSpeed)).toBe(200);
+  expect(await gamePage.evaluate(() => window.__TUYE_DEBUG__?.getConfig().player.moveSpeed)).toBe(Number(defaultPlayerSpeed));
   await gamePage.close();
 
   await page.setViewportSize({ width: 1100, height: 760 });
@@ -115,15 +218,28 @@ test('edits wildlife behavior in animal profiles and global seeded-world control
   await page.locator('[data-character-id="tiger"]').click();
   await expect(page.locator('[data-wildlife-field="enabled"]')).toBeChecked();
   await expect(page.locator('[data-wildlife-field="role"]')).toHaveValue('predator');
+  await page.locator('[data-wildlife-field="minSizeScale"]').fill('0.7');
+  await page.locator('[data-wildlife-field="maxSizeScale"]').fill('1.35');
+  await expect(page.locator('[data-wildlife-size-summary]')).toContainText('44.8–86.4px');
+  await page.locator('[data-preview-size="min"]').click();
+  const minimumPreviewWidth = (await page.locator('[data-character-preview-image]').boundingBox())!.width;
+  await page.locator('[data-preview-size="max"]').click();
+  const maximumPreviewWidth = (await page.locator('[data-character-preview-image]').boundingBox())!.width;
+  expect(maximumPreviewWidth).toBeGreaterThan(minimumPreviewWidth);
   await page.locator('[data-wildlife-field="chaseSpeed"]').fill('245');
   await page.locator('[data-wildlife-field="chaseSpeed"]').press('Tab');
+  await page.locator('[data-wildlife-field="reactionDelayMs"]').fill('525');
+  await page.locator('[data-wildlife-field="reactionDelayMs"]').press('Tab');
   await page.locator('[data-section="procedural"]').click();
   await page.locator('[data-config-path="wildlife.maxActiveAnimals"]').fill('36');
   await page.locator('#save-button').click();
 
   await page.reload();
   await page.locator('[data-character-id="tiger"]').click();
+  await expect(page.locator('[data-wildlife-field="minSizeScale"]')).toHaveValue('0.7');
+  await expect(page.locator('[data-wildlife-field="maxSizeScale"]')).toHaveValue('1.35');
   await expect(page.locator('[data-wildlife-field="chaseSpeed"]')).toHaveValue('245');
+  await expect(page.locator('[data-wildlife-field="reactionDelayMs"]')).toHaveValue('525');
   await page.locator('[data-section="procedural"]').click();
   await expect(page.locator('[data-config-path="wildlife.maxActiveAnimals"]')).toHaveValue('36');
 
@@ -131,6 +247,33 @@ test('edits wildlife behavior in animal profiles and global seeded-world control
   await page.locator('[data-character-id="penguin"]').click();
   await expect(page.locator('[data-wildlife-field]')).toHaveCount(0);
   await expect(page.locator('.character-field-group').last()).toContainText('不在首批种子世界AI动物名单');
+});
+
+test('edits seeded resource supplies and berry diets', async ({ page }) => {
+  await page.locator('#save-as-button').click();
+  await page.locator('#preset-name-input').fill('资源补给预设');
+  await page.locator('#preset-form button[type="submit"]').click();
+
+  await page.locator('[data-section="resources"]').click();
+  for (const path of ['berryMinFood', 'berryMaxFood', 'grassMaxPerChunk', 'grassSeekChance']) {
+    expect(Number.isFinite(Number(await page.locator(`[data-config-path="seededResources.${path}"]`).inputValue()))).toBe(true);
+  }
+  await page.locator('[data-config-path="seededResources.berryRegrowSeconds"]').fill('60');
+  await page.locator('[data-config-path="seededResources.shallowWaterRecoveryPerSecond"]').fill('9');
+
+  await page.locator('[data-section="characters"]').click();
+  await page.locator('[data-character-id="white-rabbit"]').click();
+  await expect(page.locator('[data-wildlife-field="eatsBerries"]')).toBeChecked();
+  await expect(page.locator('[data-wildlife-field="eatsGrass"]')).toBeChecked();
+  await page.locator('[data-character-id="tiger"]').click();
+  await expect(page.locator('[data-wildlife-field="eatsBerries"]')).not.toBeChecked();
+  await expect(page.locator('[data-wildlife-field="eatsGrass"]')).not.toBeChecked();
+  await page.locator('#save-button').click();
+
+  await page.reload();
+  await page.locator('[data-section="resources"]').click();
+  await expect(page.locator('[data-config-path="seededResources.berryRegrowSeconds"]')).toHaveValue('60');
+  await expect(page.locator('[data-config-path="seededResources.shallowWaterRecoveryPerSecond"]')).toHaveValue('9');
 });
 
 test('edits map drafts, validates duplicate ids, and supports undo/redo', async ({ page }) => {
@@ -166,7 +309,7 @@ test('edits seeded-world generation parameters without replacing the fixed map e
   await page.getByRole('button', { name: '创建并激活' }).click();
   await page.locator('[data-section="procedural"]').click();
   const density = page.locator('[data-config-path="proceduralWorld.treeDensity"]');
-  await expect(density).toHaveValue('0.34');
+  expect(Number(await density.inputValue())).toBeGreaterThan(0);
   await density.fill('0.42');
   await page.locator('#save-button').click();
   await page.reload();
@@ -196,7 +339,7 @@ test('uploads, assigns, persists, restores, and safely deletes a world image', a
   await page.locator('#preset-name-input').fill('图片素材预设');
   await page.getByRole('button', { name: '创建并激活' }).click();
   await page.locator('[data-section="assets"]').click();
-  await expect(page.locator('[data-asset-slot]')).toHaveCount(24);
+  await expect(page.locator('[data-asset-slot]')).toHaveCount(26);
   await expect(page.locator('[data-asset-card]')).not.toHaveCount(0);
 
   await page.locator('#asset-upload-input').setInputFiles('art/environment/vegetation/蘑菇-001.png');

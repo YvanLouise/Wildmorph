@@ -61,11 +61,30 @@ button:focus-visible {
 }
 
 #game-root,
+#day-night-overlay,
 #ui-root {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
+}
+
+#game-root {
+  z-index: 0;
+}
+
+#day-night-overlay {
+  z-index: 5;
+  visibility: hidden;
+  background: #0e1d34;
+  opacity: 0;
+  pointer-events: none;
+  transition: background-color 120ms linear, opacity 120ms linear, visibility 0s linear 120ms;
+}
+
+#day-night-overlay.is-visible {
+  visibility: visible;
+  transition-delay: 0s;
 }
 
 #game-root canvas {
@@ -118,6 +137,25 @@ button:focus-visible {
   height: 100%;
   object-fit: fill;
   pointer-events: none;
+  -webkit-user-drag: none;
+}
+
+.title-yl-logo {
+  position: absolute;
+  z-index: 2;
+  left: 2.5%;
+  bottom: 2.5%;
+  width: 10.5%;
+  height: auto;
+  opacity: 0.76;
+  pointer-events: none;
+  filter:
+    invert(92%)
+    sepia(28%)
+    saturate(520%)
+    hue-rotate(352deg)
+    brightness(108%)
+    drop-shadow(0 2px 5px rgba(3, 12, 8, 0.58));
   -webkit-user-drag: none;
 }
 
@@ -510,10 +548,16 @@ h2 {
   visibility: visible;
 }
 
-.area-chip {
+.world-status {
   position: absolute;
   top: 4.2%;
   left: 3.2%;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.area-chip {
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -521,6 +565,37 @@ h2 {
   border-left: 2px solid rgba(223, 190, 111, 0.66);
   background: linear-gradient(90deg, rgba(14, 23, 18, 0.8), rgba(14, 23, 18, 0));
   text-shadow: 0 2px 10px rgba(0, 0, 0, 0.65);
+}
+
+.day-night-hud {
+  display: grid;
+  grid-template-columns: auto auto;
+  align-items: center;
+  gap: 2px 7px;
+  min-width: 104px;
+  padding: 9px 12px 8px;
+  border: 1px solid rgba(224, 209, 161, 0.18);
+  border-radius: 10px;
+  background: rgba(14, 24, 20, 0.72);
+  color: var(--ink-muted);
+  font-family: system-ui, sans-serif;
+  font-size: clamp(9px, 0.82vw, 12px);
+  letter-spacing: 0.12em;
+  text-shadow: 0 2px 7px rgba(0, 0, 0, 0.72);
+  backdrop-filter: blur(7px);
+}
+
+.day-night-icon {
+  grid-row: 1 / 3;
+  color: #e7c579;
+  font-size: clamp(18px, 1.7vw, 25px);
+  line-height: 1;
+}
+
+#day-night-time {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.08em;
 }
 
 .area-chip strong {
@@ -677,6 +752,55 @@ h2 {
   transform: translateY(8px);
 }
 
+.foraging-progress {
+  position: absolute;
+  left: 50%;
+  bottom: 4.4%;
+  display: grid;
+  grid-template-columns: auto minmax(110px, 18vw) 38px;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 12px;
+  border: 1px solid rgba(232, 204, 126, 0.28);
+  border-radius: 999px;
+  background: rgba(18, 34, 25, 0.82);
+  color: #ece4bd;
+  font-family: system-ui, sans-serif;
+  font-size: clamp(9px, 0.82vw, 12px);
+  opacity: 0;
+  visibility: hidden;
+  transform: translate(-50%, 8px);
+  transition: opacity 150ms ease, transform 150ms ease, visibility 150ms ease;
+  backdrop-filter: blur(7px);
+}
+
+#ui-root[data-phase="playing"] .foraging-progress.is-visible {
+  opacity: 1;
+  visibility: visible;
+  transform: translate(-50%, 0);
+}
+
+.foraging-progress-track {
+  height: 5px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(238, 229, 188, 0.13);
+}
+
+.foraging-progress-track i {
+  display: block;
+  width: 0;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #b77a3c, #e1b55e);
+  transition: width 90ms linear;
+}
+
+.foraging-progress output {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
 .key-row {
   display: flex;
   align-items: center;
@@ -745,11 +869,30 @@ kbd {
   padding: 9px 12px;
 }
 
+.pause-session-time {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-top: 16px;
+  color: var(--ink-muted);
+  font-family: system-ui, sans-serif;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+}
+
+#session-elapsed-time {
+  color: var(--amber-bright);
+  font: 600 clamp(18px, 2vw, 24px)/1 ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.42);
+}
+
 .pause-actions {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  margin-top: 28px;
+  margin-top: 20px;
 }
 
 .pause-note {
@@ -1124,9 +1267,13 @@ html[data-input-mode="touch"] #game-stage {
   pointer-events: auto;
 }
 
-#ui-root[data-input-mode="touch"] .area-chip {
+#ui-root[data-input-mode="touch"] .world-status {
   top: calc(env(safe-area-inset-top, 0px) + 12px);
   left: calc(env(safe-area-inset-left, 0px) + 14px);
+  gap: 6px;
+}
+
+#ui-root[data-input-mode="touch"] .area-chip {
   padding: 7px 11px 6px;
 }
 
@@ -1136,6 +1283,16 @@ html[data-input-mode="touch"] #game-stage {
 
 #ui-root[data-input-mode="touch"] .area-chip span {
   font-size: clamp(8px, 2.1vh, 11px);
+}
+
+#ui-root[data-input-mode="touch"] .day-night-hud {
+  min-width: 88px;
+  padding: 7px 9px 6px;
+  font-size: clamp(8px, 2.1vh, 10px);
+}
+
+#ui-root[data-input-mode="touch"] .day-night-icon {
+  font-size: clamp(16px, 4.2vh, 21px);
 }
 
 #ui-root[data-input-mode="touch"] .survival-hud {
@@ -1176,6 +1333,14 @@ html[data-input-mode="touch"] #game-stage {
   bottom: calc(env(safe-area-inset-bottom, 0px) + 98px);
   padding: 7px 10px;
   font-size: clamp(9px, 2.4vh, 12px);
+}
+
+#ui-root[data-input-mode="touch"] .foraging-progress {
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 14px);
+  grid-template-columns: auto minmax(92px, 24vw) 34px;
+  max-width: 44vw;
+  padding: 7px 10px;
+  font-size: clamp(8px, 2.2vh, 11px);
 }
 
 #ui-root[data-input-mode="touch"] .desktop-controls-copy {
@@ -1227,6 +1392,10 @@ html[data-input-mode="touch"] #game-stage {
 #ui-root[data-input-mode="touch"] .pause-actions {
   gap: 7px;
   margin-top: 16px;
+}
+
+#ui-root[data-input-mode="touch"] .pause-session-time {
+  margin-top: 10px;
 }
 
 #ui-root[data-input-mode="touch"] .game-button {
