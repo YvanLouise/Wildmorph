@@ -1,5 +1,11 @@
 import { defineConfig, devices } from '@playwright/test';
 
+const runSoak = (
+  globalThis as typeof globalThis & {
+    process?: { env?: Record<string, string | undefined> };
+  }
+).process?.env?.TUYE_SOAK === '1';
+
 export default defineConfig({
   testDir: './tests/e2e',
   timeout: 20_000,
@@ -16,7 +22,7 @@ export default defineConfig({
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'], channel: 'chrome' },
-      testIgnore: /mobile\.spec\.ts/,
+      testIgnore: runSoak ? /mobile\.spec\.ts/ : [/mobile\.spec\.ts/, /soak\.spec\.ts/],
     },
     {
       name: 'mobile-chromium',

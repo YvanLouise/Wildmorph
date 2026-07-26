@@ -28,4 +28,29 @@ describe('GameStore', () => {
     expect(listener).toHaveBeenCalledTimes(2);
     expect(listener).toHaveBeenLastCalledWith('playing');
   });
+
+  it('updates, clamps, copies, and resets survival values', () => {
+    const store = new GameStore();
+    expect(store.getSnapshot().survival).toEqual({
+      health: 100,
+      food: 100,
+      water: 100,
+      stamina: 100,
+    });
+
+    store.updateSurvival({ health: -10, water: 140, stamina: 42.6 });
+    const snapshot = store.getSnapshot();
+    expect(snapshot.survival).toEqual({
+      health: 0,
+      food: 100,
+      water: 100,
+      stamina: 42.6,
+    });
+
+    (snapshot.survival as { health: number }).health = 77;
+    expect(store.getSnapshot().survival.health).toBe(0);
+    store.resetSurvival();
+    expect(store.getSnapshot().survival.health).toBe(100);
+    expect(store.getSnapshot().survival.stamina).toBe(100);
+  });
 });

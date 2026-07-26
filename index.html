@@ -51,10 +51,92 @@
             </div>
           </section>
 
+          <section id="world-select-screen" class="screen world-select-screen" aria-hidden="true">
+            <div class="world-select-backdrop" data-close-world-select></div>
+            <div class="world-select-card" role="dialog" aria-modal="true" aria-labelledby="world-select-title">
+              <button id="close-world-select-button" class="world-select-close" type="button" aria-label="关闭世界选择">×</button>
+              <p class="eyebrow">选择旅程</p>
+              <h2 id="world-select-title">前往何处？</h2>
+              <div class="world-mode-grid">
+                <article class="world-mode-card">
+                  <span class="world-mode-tag">固定地图</span>
+                  <h3>初生浅林</h3>
+                  <p>回到熟悉的林地，探访古树、池塘与白色巨石。</p>
+                  <button id="fixed-world-button" class="game-button game-button--primary" type="button">进入浅林</button>
+                </article>
+                <article class="world-mode-card world-mode-card--seeded">
+                  <span class="world-mode-tag">开放世界</span>
+                  <h3>种子世界</h3>
+                  <p>沿任意方向持续探索，每枚种子都会生长出稳定而独特的荒野。</p>
+                  <label class="seed-field" for="title-seed-input">
+                    <span>世界种子</span>
+                    <input id="title-seed-input" type="text" inputmode="text" autocomplete="off" spellcheck="false" maxlength="12" />
+                  </label>
+                  <p id="title-seed-error" class="seed-error" role="alert"></p>
+                  <div class="seed-actions">
+                    <button id="random-seed-button" class="game-button" type="button">随机种子</button>
+                    <button id="copy-title-seed-button" class="game-button game-button--quiet" type="button">复制</button>
+                  </div>
+                  <button id="seeded-world-button" class="game-button game-button--primary" type="button">进入种子世界</button>
+                </article>
+              </div>
+            </div>
+          </section>
+
           <section id="game-hud" class="hud" aria-label="游戏信息">
             <div class="area-chip">
               <strong>蜕野</strong>
-              <span>初生浅林</span>
+              <span id="area-name">初生浅林</span>
+            </div>
+            <div id="survival-hud" class="survival-hud" aria-label="生存状态">
+              <div id="survival-health" class="survival-item survival-item--health" data-survival-stat="health">
+                <div class="survival-item-main">
+                  <img id="survival-health-icon" class="survival-icon" alt="" decoding="async" draggable="false" />
+                  <span class="survival-copy">
+                    <span class="survival-label">生命</span>
+                    <output id="survival-health-value" class="survival-value">100</output>
+                  </span>
+                </div>
+                <div id="survival-health-meter" class="survival-meter" role="progressbar" aria-label="生命" aria-valuemin="0" aria-valuemax="100" aria-valuenow="100">
+                  <span class="survival-meter-fill"></span>
+                </div>
+              </div>
+              <div id="survival-food" class="survival-item survival-item--food" data-survival-stat="food">
+                <div class="survival-item-main">
+                  <img id="survival-food-icon" class="survival-icon" alt="" decoding="async" draggable="false" />
+                  <span class="survival-copy">
+                    <span class="survival-label">食物</span>
+                    <output id="survival-food-value" class="survival-value">100</output>
+                  </span>
+                </div>
+                <div id="survival-food-meter" class="survival-meter" role="progressbar" aria-label="食物" aria-valuemin="0" aria-valuemax="100" aria-valuenow="100">
+                  <span class="survival-meter-fill"></span>
+                </div>
+              </div>
+              <div id="survival-water" class="survival-item survival-item--water" data-survival-stat="water">
+                <div class="survival-item-main">
+                  <img id="survival-water-icon" class="survival-icon" alt="" decoding="async" draggable="false" />
+                  <span class="survival-copy">
+                    <span class="survival-label">水源</span>
+                    <output id="survival-water-value" class="survival-value">100</output>
+                  </span>
+                </div>
+                <div id="survival-water-meter" class="survival-meter" role="progressbar" aria-label="水源" aria-valuemin="0" aria-valuemax="100" aria-valuenow="100">
+                  <span class="survival-meter-fill"></span>
+                </div>
+              </div>
+              <div id="survival-stamina" class="survival-item survival-item--stamina" data-survival-stat="stamina">
+                <div class="survival-item-main">
+                  <img id="survival-stamina-icon" class="survival-icon" alt="" decoding="async" draggable="false" />
+                  <span class="survival-copy">
+                    <span class="survival-label">耐力</span>
+                    <output id="survival-stamina-value" class="survival-value">100</output>
+                  </span>
+                </div>
+                <div id="survival-stamina-meter" class="survival-meter" role="progressbar" aria-label="耐力" aria-valuemin="0" aria-valuemax="100" aria-valuenow="100">
+                  <span class="survival-meter-fill"></span>
+                </div>
+              </div>
             </div>
             <div id="controls-hint" class="controls-hint">
               <span class="desktop-controls-copy">
@@ -89,6 +171,20 @@
                 <button id="restart-button" class="game-button" type="button">重新开始</button>
                 <button id="title-button" class="game-button game-button--quiet" type="button">返回标题</button>
               </div>
+              <section id="pause-world-panel" class="pause-world-panel" aria-labelledby="pause-world-title">
+                <p id="pause-world-title">世界种子</p>
+                <output id="pause-world-seed">TY-0000-0000</output>
+                <div class="seed-actions">
+                  <button id="copy-pause-seed-button" class="game-button game-button--quiet" type="button">复制</button>
+                  <button id="new-seeded-world-button" class="game-button" type="button">新世界</button>
+                </div>
+                <label class="seed-field" for="pause-seed-input">
+                  <span>输入其他种子</span>
+                  <input id="pause-seed-input" type="text" inputmode="text" autocomplete="off" spellcheck="false" maxlength="12" />
+                </label>
+                <p id="pause-seed-error" class="seed-error" role="alert"></p>
+                <button id="apply-pause-seed-button" class="game-button" type="button">应用种子</button>
+              </section>
               <p class="pause-note"><kbd>Esc</kbd> 继续探索</p>
             </div>
           </section>
@@ -96,6 +192,13 @@
           <aside id="debug-panel" class="debug-panel" aria-live="polite">
             <strong>开发观察</strong>
             <span id="debug-stats">FPS -- · X -- · Y --</span>
+            <span class="debug-toggles">
+              <label><input type="checkbox" data-debug-layer="chunks" checked />区块</label>
+              <label><input type="checkbox" data-debug-layer="terrain" />地形</label>
+              <label><input type="checkbox" data-debug-layer="collision" checked />碰撞</label>
+              <label><input type="checkbox" data-debug-layer="spawn" checked />出生区</label>
+              <label><input type="checkbox" data-debug-layer="wildlife" />动物AI</label>
+            </span>
             <span>F1 隐藏 · [ / ] 缩放 · 1–4 传送 · R 归位</span>
           </aside>
 

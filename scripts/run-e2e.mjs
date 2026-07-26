@@ -16,10 +16,15 @@ const server = await createServer({
 let exitCode = 1;
 try {
   await server.listen();
+  const cliArgs = process.argv.slice(2);
+  const childEnvironment = {
+    ...process.env,
+    ...(cliArgs.some((argument) => argument.includes('soak')) ? { TUYE_SOAK: '1' } : {}),
+  };
   exitCode = await new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [playwrightCli, 'test'], {
+    const child = spawn(process.execPath, [playwrightCli, 'test', ...cliArgs], {
       cwd: process.cwd(),
-      env: process.env,
+      env: childEnvironment,
       stdio: 'inherit',
     });
     child.once('error', reject);

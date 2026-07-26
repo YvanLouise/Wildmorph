@@ -1,9 +1,31 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 
 const fullscreenPromptTest = 'prompts for fullscreen and keeps it available in settings';
+const rotatedLaunchTest = 'keeps the canvas aspect after rotating before launch';
+
+async function expectCanvasAspectMatchesDisplay(page: Page): Promise<void> {
+  await expect.poll(async () => page.locator('#game-root canvas').evaluate((canvas) => {
+    const drawingSurface = canvas as HTMLCanvasElement;
+    const bounds = canvas.getBoundingClientRect();
+    const drawingRatio = drawingSurface.width / drawingSurface.height;
+    const displayRatio = bounds.width / bounds.height;
+    return Math.abs(drawingRatio - displayRatio);
+  })).toBeLessThan(0.02);
+}
+
+async function startFixedWorld(page: Page): Promise<void> {
+  await page.locator('#start-button').click();
+  await expect(page.locator('#world-select-screen')).toHaveClass(/is-visible/);
+  await page.locator('#fixed-world-button').click();
+  await expect(page.locator('#ui-root')).toHaveAttribute('data-phase', 'playing');
+}
 
 test.beforeEach(async ({ page }, testInfo) => {
-  await page.setViewportSize({ width: 844, height: 390 });
+  await page.setViewportSize(
+    testInfo.title === rotatedLaunchTest
+      ? { width: 390, height: 844 }
+      : { width: 844, height: 390 },
+  );
   await page.goto('/');
   await expect(page.locator('#start-button')).toBeEnabled();
   await expect(page.locator('#ui-root')).toHaveAttribute('data-input-mode', 'touch');
@@ -11,6 +33,16 @@ test.beforeEach(async ({ page }, testInfo) => {
     await page.locator('#skip-fullscreen-button').click();
     await expect(page.locator('#mobile-fullscreen-prompt')).not.toHaveClass(/is-visible/);
   }
+});
+
+test(rotatedLaunchTest, async ({ page }, testInfo) => {
+  await expect(page.locator('#orientation-overlay')).toHaveClass(/is-visible/);
+
+  await page.setViewportSize({ width: 844, height: 390 });
+  await expect(page.locator('#orientation-overlay')).not.toHaveClass(/is-visible/);
+  await startFixedWorld(page);
+  await expectCanvasAspectMatchesDisplay(page);
+  await page.screenshot({ path: testInfo.outputPath('mobile-rotate-before-launch.png') });
 });
 
 test(fullscreenPromptTest, async ({ page }, testInfo) => {
@@ -53,11 +85,19 @@ test('adapts the title to landscape and gates portrait play', async ({ page }) =
   const start = await page.locator('#start-button').boundingBox();
   expect((start!.x - frame!.x) / frame!.width).toBeCloseTo(0.3895, 2);
   expect((start!.y - frame!.y) / frame!.height).toBeCloseTo(0.7385, 2);
+
+  await page.locator('#start-button').click();
+  await expect(page.locator('#world-select-screen')).toHaveClass(/is-visible/);
+  const selector = await page.locator('.world-select-card').boundingBox();
+  expect(selector!.x).toBeGreaterThanOrEqual(stage!.x);
+  expect(selector!.y).toBeGreaterThanOrEqual(stage!.y);
+  expect(selector!.x + selector!.width).toBeLessThanOrEqual(stage!.x + stage!.width);
+  expect(selector!.y + selector!.height).toBeLessThanOrEqual(stage!.y + stage!.height);
+  await page.locator('#close-world-select-button').click();
 });
 
 test('moves with the floating joystick and pauses from touch UI', async ({ page }) => {
-  await page.locator('#start-button').click();
-  await expect(page.locator('#ui-root')).toHaveAttribute('data-phase', 'playing');
+  await startFixedWorld(page);
   await expect(page.locator('#touch-pause-button')).toBeVisible();
   await expect(page.locator('#touch-sprint-button')).toBeVisible();
 
@@ -101,7 +141,7 @@ test('moves with the floating joystick and pauses from touch UI', async ({ page 
 });
 
 test('clears movement and stays paused after a portrait rotation', async ({ page }) => {
-  await page.locator('#start-button').click();
+  await startFixedWorld(page);
   const zone = await page.locator('#joystick-zone').boundingBox();
   const x = zone!.x + zone!.width * 0.4;
   const y = zone!.y + zone!.height * 0.6;
@@ -124,16 +164,22 @@ test('clears movement and stays paused after a portrait rotation', async ({ page
   await expect(page.locator('#orientation-overlay')).not.toHaveClass(/is-visible/);
   await expect(page.locator('#ui-root')).toHaveAttribute('data-phase', 'paused');
   await expect(page.locator('#continue-button')).toBeVisible();
+  await expectCanvasAspectMatchesDisplay(page);
 });
 
 test('keeps mobile controls inside the usable stage', async ({ page }, testInfo) => {
-  await page.locator('#start-button').click();
+  await startFixedWorld(page);
   const stage = await page.locator('#game-stage').boundingBox();
   const pause = await page.locator('#touch-pause-button').boundingBox();
+  const survivalHud = await page.locator('#survival-hud').boundingBox();
+  const areaChip = await page.locator('.area-chip').boundingBox();
   expect(pause!.x).toBeGreaterThanOrEqual(stage!.x);
   expect(pause!.y).toBeGreaterThanOrEqual(stage!.y);
   expect(pause!.x + pause!.width).toBeLessThanOrEqual(stage!.x + stage!.width);
   expect(pause!.y + pause!.height).toBeLessThanOrEqual(stage!.y + stage!.height);
+  expect(survivalHud!.x + survivalHud!.width).toBeLessThanOrEqual(pause!.x);
+  expect(survivalHud!.x).toBeGreaterThanOrEqual(areaChip!.x + areaChip!.width);
+  expect(survivalHud!.y).toBeGreaterThanOrEqual(stage!.y);
   await page.screenshot({ path: testInfo.outputPath('mobile-landscape.png') });
 
   const zone = await page.locator('#joystick-zone').boundingBox();

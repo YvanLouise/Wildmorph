@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { ASSET_KEYS, ASSET_URLS } from '../game/assets/manifest';
+import type { ResolvedWorldAssets } from '../game/assets/worldAssetLibrary';
 import type { GameConfig } from '../game/config/GameConfig';
 import type { ColliderDefinition, PointDefinition } from '../game/types';
 import { createWorldView } from '../phaser/world/createWorldView';
@@ -8,6 +9,7 @@ import type { MapSelection } from './mapOperations';
 export interface MapEditorCallbacks {
   readonly onSelect: (selection: MapSelection) => void;
   readonly onMove: (selection: MapSelection, point: PointDefinition) => void;
+  readonly onColliderMove: (id: string, offset: PointDefinition) => void;
 }
 
 const GRID_SIZE = 100;
@@ -38,6 +40,7 @@ export class MapEditorScene extends Phaser.Scene {
   constructor(
     initialConfig: Readonly<GameConfig>,
     private readonly callbacks: MapEditorCallbacks,
+    private readonly worldAssets: ResolvedWorldAssets,
   ) {
     super(MapEditorScene.KEY);
     this.configDraft = initialConfig;
@@ -45,6 +48,7 @@ export class MapEditorScene extends Phaser.Scene {
 
   preload(): void {
     this.load.image(ASSET_KEYS.playerFox, ASSET_URLS.playerFox);
+    this.worldAssets.textureEntries.forEach(([key, url]) => this.load.image(key, url));
   }
 
   create(): void {
@@ -98,7 +102,7 @@ export class MapEditorScene extends Phaser.Scene {
     camera.setBounds(0, 0, layout.width, layout.height);
     camera.setBackgroundColor('#172b27');
     this.drawGrid(layout.width, layout.height);
-    const worldView = createWorldView(this, layout, { animated: false, ambientMotion: false });
+    const worldView = createWorldView(this, layout, this.worldAssets, { animated: false, ambientMotion: false });
     this.createPondHandles();
     this.createSpawnHandle();
     layout.teleportPoints.forEach((point, index) => {
@@ -179,8 +183,15 @@ export class MapEditorScene extends Phaser.Scene {
     display?: Phaser.GameObjects.Container,
   ): void {
     const active = sameSelection(this.selected, selection);
+    const colliderX = point.x + (collider.offsetX ?? 0);
+    const colliderY = point.y + (collider.offsetY ?? 0);
+    if (active && (colliderX !== point.x || colliderY !== point.y)) {
+      const tether = this.add.graphics().setDepth(19999);
+      tether.lineStyle(3, 0x59dfc1, 0.7);
+      tether.lineBetween(point.x, point.y, colliderX, colliderY);
+    }
     const graphic = this.add.graphics();
-    graphic.lineStyle(active ? 6 : 3, active ? 0xffd573 : 0xf0b85b, active ? 1 : 0.58);
+    graphic.lineStyle(active ? 6 : 3, active ? 0x76f2d2 : 0x4fc8ad, active ? 1 : 0.68);
     let width: number;
     let height: number;
     if (collider.shape === 'circle') {
@@ -192,9 +203,22 @@ export class MapEditorScene extends Phaser.Scene {
       height = collider.height;
       graphic.strokeRect(-width / 2, -height / 2, width, height);
     }
-    const container = this.add.container(point.x, point.y, [graphic]).setDepth(20000);
-    container.setData('display', display);
-    this.enableHandle(container, selection, Math.max(width, 30), Math.max(height, 30));
+    const colliderHandle = this.add.container(colliderX, colliderY, [graphic]).setDepth(20000);
+    this.enableHandle(
+      colliderHandle,
+      selection,
+      Math.max(width, 30),
+      Math.max(height, 30),
+      'collider',
+    );
+
+    const anchor = this.add.graphics();
+    anchor.fillStyle(active ? 0xffd573 : 0xe2aa54, 0.95).fillCircle(0, 0, active ? 8 : 6);
+    anchor.lineStyle(2, 0x17372f, 0.9).strokeCircle(0, 0, active ? 8 : 6);
+    anchor.lineBetween(-11, 0, 11, 0).lineBetween(0, -11, 0, 11);
+    const objectHandle = this.add.container(point.x, point.y, [anchor]).setDepth(20001);
+    objectHandle.setData('display', display);
+    this.enableHandle(objectHandle, selection, 18, 18, 'selection');
   }
 
   private enableHandle(
@@ -202,9 +226,11 @@ export class MapEditorScene extends Phaser.Scene {
     selection: MapSelection,
     width: number,
     height: number,
+    dragKind: 'selection' | 'collider' = 'selection',
   ): void {
     container.setSize(width, height).setInteractive({ cursor: this.readOnly ? 'pointer' : 'grab' });
     container.setData('selection', selection);
+    container.setData('drag-kind', dragKind);
     container.on(Phaser.Input.Events.POINTER_DOWN, (pointer: Phaser.Input.Pointer) => {
       pointer.event.stopPropagation();
       this.callbacks.onSelect(selection);
@@ -220,8 +246,10 @@ export class MapEditorScene extends Phaser.Scene {
   ): void => {
     if (this.readOnly) return;
     gameObject.setPosition(dragX, dragY);
-    const display = gameObject.getData('display') as Phaser.GameObjects.Container | undefined;
-    display?.setPosition(dragX, dragY);
+    if (gameObject.getData('drag-kind') === 'selection') {
+      const display = gameObject.getData('display') as Phaser.GameObjects.Container | undefined;
+      display?.setPosition(dragX, dragY);
+    }
   };
 
   private readonly handleDragEnd = (
@@ -230,6 +258,15 @@ export class MapEditorScene extends Phaser.Scene {
   ): void => {
     const selection = gameObject.getData('selection') as MapSelection | undefined;
     if (!selection || this.readOnly) return;
+    if (gameObject.getData('drag-kind') === 'collider' && selection.kind === 'obstacle') {
+      const obstacle = this.configDraft.world.obstacles.find(({ id }) => id === selection.id);
+      if (!obstacle) return;
+      this.callbacks.onColliderMove(selection.id, {
+        x: Phaser.Math.Snap.To(gameObject.x - obstacle.x, SNAP_SIZE),
+        y: Phaser.Math.Snap.To(gameObject.y - obstacle.y, SNAP_SIZE),
+      });
+      return;
+    }
     const point = {
       x: Phaser.Math.Snap.To(gameObject.x, SNAP_SIZE),
       y: Phaser.Math.Snap.To(gameObject.y, SNAP_SIZE),

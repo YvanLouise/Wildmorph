@@ -5,6 +5,7 @@ import {
   isGameConfig,
   type GameConfig,
 } from './GameConfig';
+import { normalizeWorldAssetConfig } from '../assets/worldAssetConfig';
 
 export const PRESET_STORAGE_KEY = 'wildmorph.dev-presets.v1';
 export const PRESET_FILE_FORMAT = 'wildmorph-dev-preset';
@@ -34,6 +35,47 @@ export const EMPTY_PRESET_STORE: DevPresetStore = {
   presets: [],
 };
 
+function migrateConfig(value: unknown): GameConfig | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const record = value as Record<string, unknown>;
+  const candidate = record.schemaVersion === 1
+    ? {
+        ...record,
+        schemaVersion: GAME_CONFIG_SCHEMA_VERSION,
+        proceduralWorld: structuredClone(DEFAULT_GAME_CONFIG.proceduralWorld),
+        worldAssets: structuredClone(DEFAULT_GAME_CONFIG.worldAssets),
+        characterProfiles: structuredClone(DEFAULT_GAME_CONFIG.characterProfiles),
+      }
+    : record.schemaVersion === 2
+      ? {
+          ...record,
+          schemaVersion: GAME_CONFIG_SCHEMA_VERSION,
+          worldAssets: structuredClone(DEFAULT_GAME_CONFIG.worldAssets),
+          characterProfiles: structuredClone(DEFAULT_GAME_CONFIG.characterProfiles),
+        }
+      : record.schemaVersion === 3
+        ? {
+            ...record,
+            schemaVersion: GAME_CONFIG_SCHEMA_VERSION,
+            characterProfiles: structuredClone(DEFAULT_GAME_CONFIG.characterProfiles),
+          }
+        : record.schemaVersion === 4
+          ? {
+              ...record,
+              schemaVersion: GAME_CONFIG_SCHEMA_VERSION,
+              worldAssets: normalizeWorldAssetConfig(record.worldAssets),
+            }
+          : record;
+  const normalizedCandidate = {
+    ...candidate,
+    schemaVersion: GAME_CONFIG_SCHEMA_VERSION,
+    worldAssets: normalizeWorldAssetConfig((candidate as Record<string, unknown>).worldAssets),
+    wildlife: (candidate as Record<string, unknown>).wildlife
+      ?? structuredClone(DEFAULT_GAME_CONFIG.wildlife),
+  };
+  return isGameConfig(normalizedCandidate) ? cloneGameConfig(normalizedCandidate) : undefined;
+}
+
 function createId(): string {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
     return crypto.randomUUID();
@@ -46,15 +88,19 @@ export function loadPresetStore(storage: Pick<Storage, 'getItem'>): DevPresetSto
     const raw = storage.getItem(PRESET_STORAGE_KEY);
     if (!raw) return structuredClone(EMPTY_PRESET_STORE);
     const value = JSON.parse(raw) as Partial<DevPresetStore>;
-    if (value.schemaVersion !== GAME_CONFIG_SCHEMA_VERSION || !Array.isArray(value.presets)) {
+    const schemaVersion = (value as { schemaVersion?: number }).schemaVersion;
+    if ((schemaVersion !== 1 && schemaVersion !== 2 && schemaVersion !== 3 && schemaVersion !== 4 && schemaVersion !== 5 && schemaVersion !== GAME_CONFIG_SCHEMA_VERSION) || !Array.isArray(value.presets)) {
       return structuredClone(EMPTY_PRESET_STORE);
     }
-    const presets = value.presets.filter((preset): preset is DevPreset => (
-      typeof preset?.id === 'string'
-      && typeof preset.name === 'string'
-      && typeof preset.updatedAt === 'string'
-      && isGameConfig(preset.config)
-    ));
+    const presets = value.presets.flatMap((preset) => {
+      const config = migrateConfig(preset?.config);
+      return typeof preset?.id === 'string'
+        && typeof preset.name === 'string'
+        && typeof preset.updatedAt === 'string'
+        && config
+        ? [{ ...preset, config }]
+        : [];
+    });
     const activePresetId = presets.some(({ id }) => id === value.activePresetId)
       ? value.activePresetId ?? null
       : null;
@@ -120,22 +166,24 @@ export function exportPreset(preset: Readonly<DevPreset>): string {
 
 export function importPreset(serialized: string, store: Readonly<DevPresetStore>): DevPreset {
   const value = JSON.parse(serialized) as Partial<DevPresetFile>;
+  const schemaVersion = (value as { schemaVersion?: number }).schemaVersion;
+  const migratedConfig = migrateConfig(value.preset?.config);
   if (
     value.format !== PRESET_FILE_FORMAT
-    || value.schemaVersion !== GAME_CONFIG_SCHEMA_VERSION
+    || (schemaVersion !== 1 && schemaVersion !== 2 && schemaVersion !== 3 && schemaVersion !== 4 && schemaVersion !== 5 && schemaVersion !== GAME_CONFIG_SCHEMA_VERSION)
     || !value.preset
     || typeof value.preset.name !== 'string'
-    || !isGameConfig(value.preset.config)
+    || !migratedConfig
   ) {
     throw new Error('预设文件格式、版本或参数无效');
   }
   const duplicate = store.presets.some(({ id }) => id === value.preset?.id);
   return {
     ...value.preset,
+    config: migratedConfig,
     id: duplicate || typeof value.preset.id !== 'string' ? createId() : value.preset.id,
     name: duplicate ? `${value.preset.name}（导入副本）` : value.preset.name,
     updatedAt: new Date().toISOString(),
-    config: cloneGameConfig(value.preset.config),
   };
 }
 

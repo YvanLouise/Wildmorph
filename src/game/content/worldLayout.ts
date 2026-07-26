@@ -134,16 +134,20 @@ export function validateWorldLayout(layout: WorldLayout): readonly string[] {
 
   for (const obstacle of layout.obstacles) {
     const radius = colliderRadius(obstacle.collider);
+    const colliderCenter = {
+      x: obstacle.x + (obstacle.collider.offsetX ?? 0),
+      y: obstacle.y + (obstacle.collider.offsetY ?? 0),
+    };
     if (
-      obstacle.x - radius < 0 ||
-      obstacle.y - radius < 0 ||
-      obstacle.x + radius > layout.width ||
-      obstacle.y + radius > layout.height
+      colliderCenter.x - radius < 0 ||
+      colliderCenter.y - radius < 0 ||
+      colliderCenter.x + radius > layout.width ||
+      colliderCenter.y + radius > layout.height
     ) {
       errors.push(`${obstacle.id} exceeds world bounds`);
     }
 
-    const distanceFromSpawn = distanceBetween(layout.spawn, obstacle);
+    const distanceFromSpawn = distanceBetween(layout.spawn, colliderCenter);
     if (distanceFromSpawn - radius < layout.spawnClearRadius) {
       errors.push(`${obstacle.id} violates spawn clearance`);
     }

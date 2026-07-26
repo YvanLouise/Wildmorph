@@ -37,11 +37,14 @@
       <div class="workspace">
         <nav class="section-nav" aria-label="参数分类">
           <div class="nav-heading">调试目录</div>
-          <button class="nav-item is-active" type="button" data-section="player"><span>01</span>玩家</button>
-          <button class="nav-item" type="button" data-section="camera"><span>02</span>镜头</button>
-          <button class="nav-item" type="button" data-section="audio"><span>03</span>音频</button>
-          <button class="nav-item" type="button" data-section="input"><span>04</span>输入</button>
-          <button class="nav-item" type="button" data-section="map"><span>05</span>地图编辑</button>
+          <button class="nav-item is-active" type="button" data-section="characters"><span>01</span>角色档案</button>
+          <button class="nav-item" type="button" data-section="player"><span>02</span>原型玩家</button>
+          <button class="nav-item" type="button" data-section="camera"><span>03</span>镜头</button>
+          <button class="nav-item" type="button" data-section="audio"><span>04</span>音频</button>
+          <button class="nav-item" type="button" data-section="input"><span>05</span>输入</button>
+          <button class="nav-item" type="button" data-section="procedural"><span>06</span>开放世界</button>
+          <button class="nav-item" type="button" data-section="assets"><span>07</span>图片素材</button>
+          <button class="nav-item" type="button" data-section="map"><span>08</span>地图编辑</button>
           <div class="nav-note">
             <strong>工作方式</strong>
             <p>调参台预览草稿。游戏只在保存并激活后，于刷新时读取参数。</p>
@@ -49,7 +52,9 @@
         </nav>
 
         <main class="main-panel">
-          <section id="parameter-view" class="parameter-view" aria-live="polite"></section>
+          <section id="character-view" class="character-view" aria-live="polite"></section>
+          <section id="parameter-view" class="parameter-view" hidden aria-live="polite"></section>
+          <section id="asset-view" class="asset-view" hidden aria-live="polite"></section>
           <section id="map-view" class="map-view" hidden>
             <div class="map-toolbar">
               <div class="toolbar-group">
@@ -74,7 +79,7 @@
               </div>
             </div>
             <div id="map-editor-host" class="map-editor-host" aria-label="地图编辑画布"></div>
-            <div class="map-help">滚轮缩放 · 中键 / 右键 / 空格拖动平移 · 对象拖动按 10 像素吸附</div>
+            <div class="map-help">滚轮缩放 · 中键 / 右键 / 空格拖动平移 · 琥珀锚点移动对象 · 青色碰撞箱独立移动</div>
           </section>
         </main>
 
@@ -105,6 +110,7 @@
       </form>
     </dialog>
     <input id="import-input" type="file" accept="application/json,.json" hidden />
+    <input id="asset-upload-input" type="file" accept="image/png,image/webp,.png,.webp" multiple hidden />
     <script type="module" src="/src/devtools/main.ts"></script>
   </body>
 </html>

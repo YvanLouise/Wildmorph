@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { ASSET_KEYS } from '../../game/assets/manifest';
+import type { ResolvedWorldAssets } from '../../game/assets/worldAssetLibrary';
 import type { GameConfig } from '../../game/config/GameConfig';
 import { touchInput } from '../../game/input/TouchInputState';
 import {
@@ -8,8 +9,11 @@ import {
   type DirectionalInput,
 } from '../../game/input/movement';
 import { gameStore } from '../../game/state/GameStore';
-import type { ColliderDefinition, PointDefinition } from '../../game/types';
+import type { ColliderDefinition, PointDefinition, WorldLaunchRequest } from '../../game/types';
+import { parseWorldSeed } from '../../game/world/seed';
 import { createWorldView, type TreeOccluder } from '../world/createWorldView';
+import { SeededWorldRuntime } from '../world/SeededWorldRuntime';
+import type { SeededDebugLayers } from '../world/SeededWorldRuntime';
 
 interface MovementKeys {
   up: Phaser.Input.Keyboard.Key;
@@ -28,8 +32,17 @@ export class WorldScene extends Phaser.Scene {
   private wasd?: MovementKeys;
   private sprintKey?: Phaser.Input.Keyboard.Key;
   private trees: readonly TreeOccluder[] = [];
+  private seededWorld?: SeededWorldRuntime;
+  private launchRequest: WorldLaunchRequest = { mode: 'fixed' };
   private debugGraphic!: Phaser.GameObjects.Graphics;
   private debugVisible = false;
+  private debugLayers: SeededDebugLayers = {
+    chunks: true,
+    terrain: false,
+    collision: true,
+    spawn: true,
+    wildlife: false,
+  };
   private facingRadians = Math.PI;
   private nextFootstepAt = 0;
   private nextSnapshotAt = 0;
@@ -37,26 +50,59 @@ export class WorldScene extends Phaser.Scene {
   private zoomIndex: number;
   private baseCameraZoom = 1;
 
-  constructor(private readonly gameConfig: Readonly<GameConfig>) {
+  constructor(
+    private readonly gameConfig: Readonly<GameConfig>,
+    private readonly worldAssets: ResolvedWorldAssets,
+  ) {
     super(WorldScene.KEY);
     this.zoomIndex = gameConfig.camera.defaultZoomIndex;
   }
 
+  setLaunchRequest(request: WorldLaunchRequest): void {
+    this.launchRequest = { ...request };
+  }
+
   create(): void {
     const layout = this.gameConfig.world;
+    const seeded = this.launchRequest.mode === 'seeded';
+    const spawn = seeded ? this.gameConfig.proceduralWorld.spawn : layout.spawn;
     this.zoomIndex = this.gameConfig.camera.defaultZoomIndex;
-    this.physics.world.setBounds(0, 0, layout.width, layout.height);
-    this.cameras.main.setBounds(0, 0, layout.width, layout.height);
+    if (seeded) {
+      this.physics.world.setBounds(-1_000_000_000, -1_000_000_000, 2_000_000_000, 2_000_000_000);
+      this.cameras.main.removeBounds();
+    } else {
+      this.physics.world.setBounds(0, 0, layout.width, layout.height);
+      this.cameras.main.setBounds(0, 0, layout.width, layout.height);
+    }
     this.cameras.main.setBackgroundColor('#53624b');
 
-    const worldView = createWorldView(this, layout);
-    this.trees = worldView.trees;
-    this.createPlayer();
+    if (!seeded) {
+      const worldView = createWorldView(this, layout, this.worldAssets);
+      this.trees = worldView.trees;
+    } else {
+      this.trees = [];
+    }
+    this.createPlayer(spawn, seeded);
+    if (seeded) {
+      const seed = parseWorldSeed(this.launchRequest.seed ?? '');
+      if (!seed) throw new Error(`Invalid seeded world launch: ${this.launchRequest.seed ?? ''}`);
+      this.seededWorld = new SeededWorldRuntime(
+        this,
+        this.playerBody,
+        this.playerSprite,
+        seed,
+        this.gameConfig.proceduralWorld,
+        this.worldAssets,
+        this.gameConfig.characterProfiles,
+        this.gameConfig.wildlife,
+      );
+      this.seededWorld.initialize();
+    }
     this.createInput();
     this.createDebugGraphic();
 
     this.applyCameraZoom(this.scale.gameSize.height);
-    this.cameras.main.centerOn(layout.spawn.x, layout.spawn.y);
+    this.cameras.main.centerOn(spawn.x, spawn.y);
     this.cameras.main.startFollow(
       this.playerBody,
       true,
@@ -70,13 +116,15 @@ export class WorldScene extends Phaser.Scene {
       this.scale.off(Phaser.Scale.Events.RESIZE, this.handleResize);
       this.clearInput();
       this.body.setVelocity(0, 0);
+      this.seededWorld?.destroy();
+      this.seededWorld = undefined;
     });
 
     this.publishSnapshot();
     this.game.events.emit('world-ready');
   }
 
-  update(time: number): void {
+  update(time: number, delta: number): void {
     const sprinting = Boolean(this.sprintKey?.isDown || touchInput.isSprinting());
     const speed = this.gameConfig.player.moveSpeed;
     const movement = resolveMovement(
@@ -85,6 +133,10 @@ export class WorldScene extends Phaser.Scene {
     );
 
     this.body.setVelocity(movement.x, movement.y);
+    this.seededWorld?.update(this.playerBody.x, this.playerBody.y, {
+      x: movement.x === 0 ? 0 : Math.sign(movement.x),
+      y: movement.y === 0 ? 0 : Math.sign(movement.y),
+    }, delta);
 
     if (movement.moving) {
       this.facingRadians = Math.atan2(movement.y, movement.x) - Math.PI / 2;
@@ -96,6 +148,7 @@ export class WorldScene extends Phaser.Scene {
 
     this.updatePlayerView();
     this.updateTreeOcclusion();
+    this.seededWorld?.updateOcclusion(this.playerBody.x, this.playerBody.y);
     this.updateDebugDrawing();
 
     gameStore.updatePlayer({
@@ -109,6 +162,25 @@ export class WorldScene extends Phaser.Scene {
     gameStore.updateRuntime({
       fps: this.game.loop.actualFps,
       cameraZoom: this.cameras.main.zoom,
+    });
+    gameStore.updateWorld(this.seededWorld?.telemetry() ?? {
+      mode: 'fixed',
+      seed: null,
+      generationVersion: null,
+      chunk: null,
+      activeChunks: 1,
+      cachedChunks: 0,
+      lastGenerationMs: 0,
+      objectCount: this.gameConfig.world.obstacles.length,
+      colliderCount: this.gameConfig.world.obstacles.length,
+      wildlife: {
+        activeAnimals: 0,
+        sleepingAnimals: 0,
+        pathSearches: 0,
+        lastSimulationMs: 0,
+        bySpecies: {},
+        byState: {},
+      },
     });
 
     if (time >= this.nextSnapshotAt) {
@@ -133,6 +205,10 @@ export class WorldScene extends Phaser.Scene {
     }
   }
 
+  setDebugLayer(layer: keyof SeededDebugLayers, visible: boolean): void {
+    this.debugLayers = { ...this.debugLayers, [layer]: visible };
+  }
+
   cycleZoom(direction: -1 | 1): void {
     const zoomLevels = this.gameConfig.camera.zoomLevels;
     this.zoomIndex = Phaser.Math.Clamp(this.zoomIndex + direction, 0, zoomLevels.length - 1);
@@ -154,6 +230,17 @@ export class WorldScene extends Phaser.Scene {
   }
 
   teleport(index: number): void {
+    if (this.seededWorld) {
+      const points = [
+        { x: -4, y: -4 },
+        { x: 4, y: -4 },
+        { x: -4, y: 4 },
+        { x: 4, y: 4 },
+      ];
+      const chunk = points[index];
+      if (chunk) this.teleportToChunk(chunk.x, chunk.y);
+      return;
+    }
     const point = this.gameConfig.world.teleportPoints[index];
     if (point) {
       this.movePlayerTo(point);
@@ -161,9 +248,40 @@ export class WorldScene extends Phaser.Scene {
   }
 
   resetPlayer(): void {
-    this.movePlayerTo(this.gameConfig.world.spawn);
+    this.movePlayerTo(this.seededWorld ? this.gameConfig.proceduralWorld.spawn : this.gameConfig.world.spawn);
     this.facingRadians = Math.PI;
     this.playerSprite.setRotation(this.facingRadians);
+  }
+
+  teleportToChunk(x: number, y: number): void {
+    if (!this.seededWorld) return;
+    const size = this.gameConfig.proceduralWorld.tileSize * this.gameConfig.proceduralWorld.chunkTiles;
+    this.movePlayerTo({ x: x * size + size / 2, y: y * size + size / 2 });
+  }
+
+  teleportToWorld(x: number, y: number): void {
+    if (this.seededWorld) this.movePlayerTo({ x, y });
+  }
+
+  getChunkFingerprint(x: number, y: number): string | undefined {
+    return this.seededWorld?.getFingerprint(x, y);
+  }
+
+  getChunkData(x: number, y: number) {
+    return this.seededWorld?.getChunkData(x, y);
+  }
+
+  refreshWorld(): void {
+    this.seededWorld?.refresh();
+  }
+
+  getWildlifeSnapshots() {
+    return this.seededWorld?.getWildlifeSnapshots() ?? [];
+  }
+
+  teleportToWildlife(id: string): void {
+    const animal = this.seededWorld?.getWildlifeSnapshots().find((candidate) => candidate.id === id);
+    if (animal) this.movePlayerTo({ x: animal.x, y: animal.y + 120 });
   }
 
   private createStaticZone(
@@ -185,15 +303,15 @@ export class WorldScene extends Phaser.Scene {
     return zone;
   }
 
-  private createPlayer(): void {
+  private createPlayer(spawn: PointDefinition, seeded: boolean): void {
     const { player, world } = this.gameConfig;
-    const { x, y } = world.spawn;
+    const { x, y } = spawn;
     this.playerBody = this.add.zone(x, y, player.bodyWidth, player.bodyHeight).setOrigin(0.5);
     this.physics.add.existing(this.playerBody);
     this.body = this.playerBody.body as Phaser.Physics.Arcade.Body;
     this.body.setSize(player.bodyWidth, player.bodyHeight);
     this.body.setAllowGravity(false);
-    this.body.setCollideWorldBounds(true);
+    this.body.setCollideWorldBounds(!seeded);
     const sprintSpeed = player.moveSpeed * player.sprintMultiplier;
     this.body.setMaxVelocity(sprintSpeed, sprintSpeed);
 
@@ -202,9 +320,15 @@ export class WorldScene extends Phaser.Scene {
     this.baseSpriteScale = player.visualSize / Math.max(source.width, source.height);
     this.playerSprite.setScale(this.baseSpriteScale).setDepth(y);
 
-    for (const obstacle of world.obstacles) {
-      const zone = this.createStaticZone(obstacle.x, obstacle.y, obstacle.collider);
-      this.physics.add.collider(this.playerBody, zone);
+    if (!seeded) {
+      for (const obstacle of world.obstacles) {
+        const zone = this.createStaticZone(
+          obstacle.x + (obstacle.collider.offsetX ?? 0),
+          obstacle.y + (obstacle.collider.offsetY ?? 0),
+          obstacle.collider,
+        );
+        this.physics.add.collider(this.playerBody, zone);
+      }
     }
   }
 
@@ -283,20 +407,26 @@ export class WorldScene extends Phaser.Scene {
       bodyHeight,
     );
     this.debugGraphic.lineStyle(2, 0xffba73, 0.78);
-    for (const obstacle of this.gameConfig.world.obstacles) {
-      if (obstacle.collider.shape === 'circle') {
-        this.debugGraphic.strokeCircle(obstacle.x, obstacle.y, obstacle.collider.radius);
-      } else {
-        this.debugGraphic.strokeRect(
-          obstacle.x - obstacle.collider.width / 2,
-          obstacle.y - obstacle.collider.height / 2,
-          obstacle.collider.width,
-          obstacle.collider.height,
-        );
+    if (this.seededWorld) {
+      this.seededWorld.drawDebug(this.debugGraphic, this.debugLayers);
+    } else {
+      for (const obstacle of this.gameConfig.world.obstacles) {
+        const colliderX = obstacle.x + (obstacle.collider.offsetX ?? 0);
+        const colliderY = obstacle.y + (obstacle.collider.offsetY ?? 0);
+        if (obstacle.collider.shape === 'circle') {
+          this.debugGraphic.strokeCircle(colliderX, colliderY, obstacle.collider.radius);
+        } else {
+          this.debugGraphic.strokeRect(
+            colliderX - obstacle.collider.width / 2,
+            colliderY - obstacle.collider.height / 2,
+            obstacle.collider.width,
+            obstacle.collider.height,
+          );
+        }
       }
+      this.debugGraphic.lineStyle(3, 0xd7e8a4, 0.8);
+      this.debugGraphic.strokeRect(0, 0, this.gameConfig.world.width, this.gameConfig.world.height);
     }
-    this.debugGraphic.lineStyle(3, 0xd7e8a4, 0.8);
-    this.debugGraphic.strokeRect(0, 0, this.gameConfig.world.width, this.gameConfig.world.height);
   }
 
   private movePlayerTo(point: PointDefinition): void {

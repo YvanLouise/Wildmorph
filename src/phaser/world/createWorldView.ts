@@ -1,12 +1,14 @@
 import Phaser from 'phaser';
-import type { ObstacleDefinition, WorldLayout } from '../../game/types';
+import { defaultSlotForObstacle } from '../../game/assets/worldAssetConfig';
+import { worldTextureKey, type ResolvedWorldAssets } from '../../game/assets/worldAssetLibrary';
+import type { ObstacleDefinition, WorldImageBinding, WorldLayout } from '../../game/types';
 
 export interface TreeOccluder {
   readonly x: number;
   readonly y: number;
   readonly canopyWidth: number;
   readonly canopyHeight: number;
-  readonly canopy: Phaser.GameObjects.Graphics;
+  readonly canopy: Phaser.GameObjects.Image;
   readonly display: Phaser.GameObjects.Container;
 }
 
@@ -187,38 +189,28 @@ function createTree(
   scene: Phaser.Scene,
   obstacle: ObstacleDefinition,
   animated: boolean,
+  binding: WorldImageBinding,
 ): TreeOccluder {
-  const scale = obstacle.visualScale ?? 1;
+  const key = worldTextureKey(binding.sourceId);
+  const source = scene.textures.get(key).getSourceImage() as HTMLImageElement;
+  const scale = binding.displaySize / (binding.sizeMode === 'width' ? source.width : source.height)
+    * (obstacle.visualScale ?? 1);
   const ancient = obstacle.kind === 'ancient-tree';
-  const canopyWidth = (ancient ? 220 : 118) * scale;
-  const canopyHeight = (ancient ? 205 : 126) * scale;
-  const container = scene.add.container(obstacle.x, obstacle.y).setDepth(obstacle.y + 1);
-  const shadow = scene.add.ellipse(0, 5, canopyWidth * 0.58, 28 * scale, 0x17231c, 0.28);
-  const trunk = scene.add.rectangle(0, -28 * scale, (ancient ? 34 : 20) * scale, (ancient ? 86 : 58) * scale, COLORS.trunk)
-    .setStrokeStyle(3 * scale, COLORS.trunkLight, 0.62);
-  const trunkMark = scene.add.rectangle(-4 * scale, -32 * scale, 3 * scale, 42 * scale, COLORS.trunkLight, 0.38);
-  const canopy = scene.add.graphics();
-
-  canopy.fillStyle(COLORS.crownDark, 0.98);
-  canopy.fillEllipse(0, -82 * scale, canopyWidth, canopyHeight * 0.76);
-  canopy.fillStyle(COLORS.crown, 1);
-  canopy.fillCircle(-canopyWidth * 0.22, -86 * scale, canopyWidth * 0.29);
-  canopy.fillCircle(canopyWidth * 0.2, -92 * scale, canopyWidth * 0.31);
-  canopy.fillCircle(0, -118 * scale, canopyWidth * 0.3);
-  canopy.fillStyle(COLORS.crownLight, 0.54);
-  canopy.fillEllipse(-canopyWidth * 0.12, -126 * scale, canopyWidth * 0.38, canopyHeight * 0.2);
-
-  if (ancient) {
-    canopy.lineStyle(4, 0x90a06d, 0.28);
-    canopy.beginPath();
-    canopy.moveTo(-64, -154);
-    canopy.lineTo(-102, -185);
-    canopy.moveTo(74, -152);
-    canopy.lineTo(116, -177);
-    canopy.strokePath();
-  }
-
-  container.add([shadow, trunk, trunkMark, canopy]);
+  const canopyCut = Math.round(source.height * (binding.canopyCutRatio ?? 0.76));
+  const canopyWidth = source.width * scale;
+  const canopyHeight = canopyCut * scale;
+  const container = scene.add.container(obstacle.x, obstacle.y)
+    .setDepth(obstacle.y + 1)
+    .setRotation(obstacle.rotation ?? 0);
+  const trunk = scene.add.image(0, 0, key)
+    .setOrigin(binding.anchorX, binding.anchorY)
+    .setScale(scale)
+    .setCrop(0, canopyCut, source.width, source.height - canopyCut);
+  const canopy = scene.add.image(0, 0, key)
+    .setOrigin(binding.anchorX, binding.anchorY)
+    .setScale(scale)
+    .setCrop(0, 0, source.width, canopyCut);
+  container.add([trunk, canopy]);
   if (animated) {
     scene.tweens.add({
       targets: canopy,
@@ -244,63 +236,37 @@ function createTree(
 function createRock(
   scene: Phaser.Scene,
   obstacle: ObstacleDefinition,
+  binding: WorldImageBinding,
 ): Phaser.GameObjects.Container {
-  const scale = obstacle.visualScale ?? 1;
-  const white = obstacle.kind === 'white-rock';
-  const width = (white ? 118 : 62) * scale;
-  const height = (white ? 90 : 48) * scale;
-  const container = scene.add.container(obstacle.x, obstacle.y).setDepth(obstacle.y);
-  const shadow = scene.add.ellipse(2, 7, width * 0.94, height * 0.42, 0x1b241f, 0.3);
-  const graphic = scene.add.graphics();
-  const points = [
-    new Phaser.Geom.Point(-width * 0.48, 5),
-    new Phaser.Geom.Point(-width * 0.28, -height * 0.42),
-    new Phaser.Geom.Point(width * 0.12, -height * 0.52),
-    new Phaser.Geom.Point(width * 0.47, -height * 0.12),
-    new Phaser.Geom.Point(width * 0.36, height * 0.38),
-    new Phaser.Geom.Point(-width * 0.22, height * 0.44),
-  ];
-  graphic.fillStyle(white ? COLORS.whiteRockShadow : COLORS.rock, 1);
-  graphic.fillPoints(points, true);
-  graphic.fillStyle(white ? COLORS.whiteRock : COLORS.rockLight, white ? 0.95 : 0.58);
-  graphic.fillPoints([
-    points[0],
-    points[1],
-    points[2],
-    new Phaser.Geom.Point(width * 0.12, 0),
-    new Phaser.Geom.Point(-width * 0.12, height * 0.08),
-  ], true);
-  if (white) {
-    graphic.lineStyle(3, 0x6f746b, 0.8);
-    graphic.beginPath();
-    graphic.moveTo(-8, -height * 0.44);
-    graphic.lineTo(-18, -8);
-    graphic.lineTo(4, 7);
-    graphic.lineTo(-5, height * 0.3);
-    graphic.strokePath();
-  }
-  container.add([shadow, graphic]);
+  const key = worldTextureKey(binding.sourceId);
+  const source = scene.textures.get(key).getSourceImage() as HTMLImageElement;
+  const scale = binding.displaySize / (binding.sizeMode === 'width' ? source.width : source.height)
+    * (obstacle.visualScale ?? 1);
+  const image = scene.add.image(0, 0, key)
+    .setOrigin(binding.anchorX, binding.anchorY)
+    .setScale(scale);
+  const container = scene.add.container(obstacle.x, obstacle.y, [image])
+    .setDepth(obstacle.y)
+    .setRotation(obstacle.rotation ?? 0);
   return container;
 }
 
 function createFallenLog(
   scene: Phaser.Scene,
   obstacle: ObstacleDefinition,
+  binding: WorldImageBinding,
 ): Phaser.GameObjects.Container {
-  const width = obstacle.collider.shape === 'rectangle' ? obstacle.collider.width : 110;
-  const height = obstacle.collider.shape === 'rectangle' ? obstacle.collider.height : 28;
+  const key = worldTextureKey(binding.sourceId);
+  const source = scene.textures.get(key).getSourceImage() as HTMLImageElement;
+  const scale = binding.displaySize / (binding.sizeMode === 'width' ? source.width : source.height)
+    * (obstacle.visualScale ?? 1);
+  const image = scene.add.image(0, 0, key)
+    .setOrigin(binding.anchorX, binding.anchorY)
+    .setScale(scale);
   const container = scene.add.container(obstacle.x, obstacle.y)
     .setDepth(obstacle.y)
     .setRotation(obstacle.rotation ?? 0);
-  const shadow = scene.add.ellipse(0, 7, width + 14, height * 0.72, 0x17201b, 0.28);
-  const trunk = scene.add.rectangle(0, 0, width, height, COLORS.trunk)
-    .setStrokeStyle(3, 0x3b3027, 0.8);
-  const end = scene.add.ellipse(-width / 2, 0, 13, height - 4, COLORS.trunkLight)
-    .setStrokeStyle(2, 0x3b3027, 0.8);
-  const branch = scene.add.rectangle(width * 0.18, -10, 30, 8, COLORS.trunk)
-    .setOrigin(0.1, 0.5)
-    .setRotation(-0.65);
-  container.add([shadow, trunk, end, branch]);
+  container.add(image);
   return container;
 }
 
@@ -353,6 +319,7 @@ function createAmbientMotion(scene: Phaser.Scene, layout: WorldLayout): void {
 export function createWorldView(
   scene: Phaser.Scene,
   layout: WorldLayout,
+  assets: ResolvedWorldAssets,
   options: WorldViewOptions = {},
 ): WorldView {
   const animated = options.animated ?? true;
@@ -368,17 +335,18 @@ export function createWorldView(
     switch (obstacle.kind) {
       case 'tree':
       case 'ancient-tree': {
-        const tree = createTree(scene, obstacle, animated);
+        const slot = defaultSlotForObstacle(obstacle.kind)!;
+        const tree = createTree(scene, obstacle, animated, assets.obstacleOverrides.get(obstacle.id) ?? assets.slots[slot]);
         trees.push(tree);
         objects.set(obstacle.id, tree.display);
         break;
       }
       case 'rock':
       case 'white-rock':
-        objects.set(obstacle.id, createRock(scene, obstacle));
+        objects.set(obstacle.id, createRock(scene, obstacle, assets.obstacleOverrides.get(obstacle.id) ?? assets.slots[defaultSlotForObstacle(obstacle.kind)!]));
         break;
       case 'fallen-log':
-        objects.set(obstacle.id, createFallenLog(scene, obstacle));
+        objects.set(obstacle.id, createFallenLog(scene, obstacle, assets.obstacleOverrides.get(obstacle.id) ?? assets.slots['fixed.fallen-log']));
         break;
       case 'water':
         break;

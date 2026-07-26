@@ -84,3 +84,27 @@ export function moveSelection(
   }
   return next;
 }
+
+export function moveObstacleCollider(
+  config: Readonly<GameConfig>,
+  id: string,
+  offset: PointDefinition,
+): GameConfig {
+  const next = cloneGameConfig(config);
+  return {
+    ...next,
+    world: {
+      ...next.world,
+      obstacles: next.world.obstacles.map((obstacle) => obstacle.id === id
+        ? {
+            ...obstacle,
+            collider: {
+              ...obstacle.collider,
+              offsetX: offset.x,
+              offsetY: offset.y,
+            },
+          }
+        : obstacle),
+    },
+  };
+}

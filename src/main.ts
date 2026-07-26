@@ -1,13 +1,16 @@
 import Phaser from 'phaser';
 import './style.css';
 import { ASSET_URLS } from './game/assets/manifest';
+import { resolveWorldAssets } from './game/assets/worldAssetLibrary';
 import { AmbienceAudio } from './game/audio/AmbienceAudio';
 import { LoopingMusic } from './game/audio/LoopingMusic';
 import { cloneGameConfig } from './game/config/GameConfig';
 import { loadActiveGameConfig } from './game/config/devPresets';
 import { touchInput } from './game/input/TouchInputState';
 import { gameStore } from './game/state/GameStore';
-import type { GameSnapshot } from './game/types';
+import type { GameSnapshot, WorldLaunchRequest } from './game/types';
+import { WorldSession } from './game/world/WorldSession';
+import { attachViewportSync } from './phaser/ViewportSync';
 import { BootScene } from './phaser/scenes/BootScene';
 import { WorldScene } from './phaser/scenes/WorldScene';
 import { AppUI } from './ui/AppUI';
@@ -15,6 +18,11 @@ import { AppUI } from './ui/AppUI';
 const gameConfig = loadActiveGameConfig(
   import.meta.env.DEV,
   typeof localStorage === 'undefined' ? undefined : localStorage,
+);
+const resolvedWorldAssets = await resolveWorldAssets(
+  gameConfig.worldAssets,
+  gameConfig.world.obstacles,
+  import.meta.env.DEV,
 );
 touchInput.setDeadZone(gameConfig.input.joystickDeadZone);
 
@@ -26,6 +34,7 @@ const ambience = new AmbienceAudio(
 const titleMusic = new LoopingMusic(ASSET_URLS.titleMusic, gameConfig.audio.titleMusicVolume);
 let assetsReady = false;
 let debugVisible = false;
+const worldSession = new WorldSession(typeof localStorage === 'undefined' ? undefined : localStorage);
 
 const game = new Phaser.Game({
   type: Phaser.AUTO,
@@ -53,18 +62,23 @@ const game = new Phaser.Game({
       debug: false,
     },
   },
-  scene: [BootScene, new WorldScene(gameConfig)],
+  scene: [new BootScene(resolvedWorldAssets), new WorldScene(gameConfig, resolvedWorldAssets)],
 });
+
+window.addEventListener('pagehide', () => resolvedWorldAssets.dispose(), { once: true });
 
 const getWorldScene = (): WorldScene | undefined => {
   const scene = game.scene.getScene(WorldScene.KEY);
   return scene instanceof WorldScene ? scene : undefined;
 };
 
-const startGame = (): void => {
+const startGame = (request: WorldLaunchRequest): void => {
   if (!assetsReady || gameStore.getPhase() !== 'title') {
     return;
   }
+  if (!worldSession.select(request)) return;
+  getWorldScene()?.setLaunchRequest(worldSession.request);
+  ui.setWorld(worldSession.request);
   void titleMusic.stop();
   gameStore.transition('playing');
   void ambience.start();
@@ -97,6 +111,20 @@ const restartGame = (): void => {
     return;
   }
   gameStore.transition('resetting');
+  gameStore.resetSurvival();
+  getWorldScene()?.setLaunchRequest(worldSession.request);
+  game.scene.stop(WorldScene.KEY);
+  game.scene.start(WorldScene.KEY);
+  void ambience.resume();
+};
+
+const applyWorldSeed = (seed: string): void => {
+  const phase = gameStore.getPhase();
+  if ((phase !== 'playing' && phase !== 'paused') || !worldSession.select({ mode: 'seeded', seed })) return;
+  ui.setWorld(worldSession.request);
+  gameStore.transition('resetting');
+  gameStore.resetSurvival();
+  getWorldScene()?.setLaunchRequest(worldSession.request);
   game.scene.stop(WorldScene.KEY);
   game.scene.start(WorldScene.KEY);
   void ambience.resume();
@@ -114,12 +142,16 @@ const returnToTitle = (): void => {
 };
 
 const ui = new AppUI({
-  onStart: startGame,
+  initialWorld: worldSession.request,
+  onLaunch: startGame,
+  onApplySeed: applyWorldSeed,
   onPause: pauseGame,
   onContinue: continueGame,
   onRestart: restartGame,
   onReturnToTitle: returnToTitle,
 });
+
+attachViewportSync(game, document.getElementById('game-stage') as HTMLElement);
 
 gameStore.subscribe((phase) => ui.setPhase(phase));
 
@@ -136,10 +168,18 @@ game.events.on('world-ready', () => {
 });
 
 game.events.on('world-snapshot', (snapshot: Readonly<GameSnapshot>) => {
+  ui.updateSurvival(snapshot.survival);
   ui.updateDebug(snapshot);
 });
 
 game.events.on('player-step', () => ambience.footstep());
+
+document.querySelectorAll<HTMLInputElement>('[data-debug-layer]').forEach((input) => {
+  input.addEventListener('change', () => {
+    const layer = input.dataset.debugLayer as 'chunks' | 'terrain' | 'collision' | 'spawn' | 'wildlife';
+    getWorldScene()?.setDebugLayer(layer, input.checked);
+  });
+});
 
 window.addEventListener('keydown', (event) => {
   const phase = gameStore.getPhase();
@@ -152,6 +192,7 @@ window.addEventListener('keydown', (event) => {
 
   if (event.code === 'Escape') {
     event.preventDefault();
+    if (ui.handleEscape()) return;
     if (phase === 'playing') {
       pauseGame();
     } else if (phase === 'paused') {
@@ -232,5 +273,12 @@ if (import.meta.env.DEV) {
     teleport: (index) => getWorldScene()?.teleport(index),
     resetPlayer: () => getWorldScene()?.resetPlayer(),
     setZoom: (zoom) => getWorldScene()?.setZoom(zoom),
+    getChunkFingerprint: (x, y) => getWorldScene()?.getChunkFingerprint(x, y),
+    getChunkData: (x, y) => getWorldScene()?.getChunkData(x, y),
+    teleportToWorld: (x, y) => getWorldScene()?.teleportToWorld(x, y),
+    teleportToChunk: (x, y) => getWorldScene()?.teleportToChunk(x, y),
+    refreshWorld: () => getWorldScene()?.refreshWorld(),
+    getWildlifeSnapshots: () => getWorldScene()?.getWildlifeSnapshots() ?? [],
+    teleportToWildlife: (id) => getWorldScene()?.teleportToWildlife(id),
   };
 }

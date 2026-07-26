@@ -1,5 +1,12 @@
 import { expect, test } from '@playwright/test';
 
+async function startFixedWorld(page: import('@playwright/test').Page): Promise<void> {
+  await page.locator('#start-button').click();
+  await expect(page.locator('#world-select-screen')).toHaveClass(/is-visible/);
+  await page.locator('#fixed-world-button').click();
+  await expect(page.locator('#ui-root')).toHaveAttribute('data-phase', 'playing');
+}
+
 test.beforeEach(async ({ page }, testInfo) => {
   if (testInfo.title === 'allows exploration when the title art cannot load') {
     await page.route('**/*', async (route) => {
@@ -53,7 +60,7 @@ test('renders the title art and keeps all hotspots aligned', async ({ page }) =>
   await assertHotspotAlignment();
 
   await page.locator('#codex-button').hover();
-  expect(await page.locator('#codex-button').evaluate((button) => (
+  await expect.poll(() => page.locator('#codex-button').evaluate((button) => (
     getComputedStyle(button).backgroundColor
   ))).not.toBe('rgba(0, 0, 0, 0)');
   await page.locator('#settings-button').focus();
@@ -83,8 +90,33 @@ test('allows exploration when the title art cannot load', async ({ page }) => {
   await expect(page.locator('#title-screen')).toHaveClass(/is-art-missing/);
   await expect(page.locator('#loading-label')).toHaveText('首页图像未能载入，仍可开始探索');
   await expect(page.locator('#start-button')).toBeEnabled();
-  await page.locator('#start-button').click();
-  await expect(page.locator('#ui-root')).toHaveAttribute('data-phase', 'playing');
+  await startFixedWorld(page);
+});
+
+test('shows four survival stats in the upper-right HUD', async ({ page }) => {
+  const survivalHud = page.locator('#survival-hud');
+  await expect(survivalHud).not.toBeVisible();
+  await startFixedWorld(page);
+  await expect(survivalHud).toBeVisible();
+
+  const stats = survivalHud.locator('[data-survival-stat]');
+  await expect(stats).toHaveCount(4);
+  expect(await stats.evaluateAll((items) => items.map((item) => item.getAttribute('data-survival-stat'))))
+    .toEqual(['health', 'food', 'water', 'stamina']);
+  await expect(stats.locator('.survival-label')).toHaveText(['生命', '食物', '水源', '耐力']);
+  await expect(stats.locator('.survival-value')).toHaveText(['100', '100', '100', '100']);
+
+  for (const stat of ['health', 'food', 'water', 'stamina']) {
+    await expect(page.locator(`#survival-${stat}-meter`)).toHaveAttribute('aria-valuenow', '100');
+    await expect.poll(() => page.locator(`#survival-${stat}-icon`).evaluate(
+      (image: HTMLImageElement) => image.naturalWidth,
+    )).toBeGreaterThan(0);
+  }
+
+  const stage = await page.locator('#game-stage').boundingBox();
+  const hud = await survivalHud.boundingBox();
+  expect(hud!.x + hud!.width).toBeLessThanOrEqual(stage!.x + stage!.width);
+  expect(hud!.y).toBeGreaterThanOrEqual(stage!.y);
 });
 
 test('starts, moves, pauses, resets, and returns to title', async ({ page }) => {
@@ -92,7 +124,7 @@ test('starts, moves, pauses, resets, and returns to title', async ({ page }) => 
     decodeURIComponent(response.url()).includes('/music/平静-悠然1.ogg')
     && [200, 206].includes(response.status())
   ));
-  await page.locator('#start-button').click();
+  await startFixedWorld(page);
   await musicResponsePromise;
   await expect(page.locator('#ui-root')).toHaveAttribute('data-phase', 'playing');
   await expect.poll(() => page.evaluate(() => window.__TUYE_DEBUG__?.getSnapshot().player.x)).toBe(1200);
@@ -120,8 +152,7 @@ test('starts, moves, pauses, resets, and returns to title', async ({ page }) => 
 });
 
 test('normalizes diagonal input and auto-pauses on focus loss', async ({ page }) => {
-  await page.locator('#start-button').click();
-  await expect(page.locator('#ui-root')).toHaveAttribute('data-phase', 'playing');
+  await startFixedWorld(page);
 
   await page.keyboard.down('w');
   await page.keyboard.down('d');
@@ -137,7 +168,7 @@ test('normalizes diagonal input and auto-pauses on focus loss', async ({ page })
 });
 
 test('sprints at 1.5x speed while Shift is held', async ({ page }) => {
-  await page.locator('#start-button').click();
+  await startFixedWorld(page);
   await page.keyboard.down('d');
   await expect.poll(async () => page.evaluate(() => (
     window.__TUYE_DEBUG__?.getSnapshot().player.velocityX
@@ -161,14 +192,14 @@ test('keeps a 16:9 stage and exposes safe debug travel', async ({ page }) => {
   expect(box).not.toBeNull();
   expect((box?.width ?? 0) / (box?.height ?? 1)).toBeCloseTo(16 / 9, 2);
 
-  await page.locator('#start-button').click();
+  await startFixedWorld(page);
   await page.evaluate(() => window.__TUYE_DEBUG__?.teleport(3));
   await expect.poll(() => page.evaluate(() => window.__TUYE_DEBUG__?.getSnapshot().player.x)).toBe(2250);
   await expect.poll(() => page.evaluate(() => window.__TUYE_DEBUG__?.getSnapshot().player.y)).toBe(1450);
 });
 
 test('blocks the player at the world edge and ancient tree trunk', async ({ page }) => {
-  await page.locator('#start-button').click();
+  await startFixedWorld(page);
   await page.evaluate(() => window.__TUYE_DEBUG__?.teleport(3));
   await page.keyboard.down('d');
   await page.keyboard.down('s');
@@ -193,7 +224,7 @@ test('captures representative title, world, landmark, and pause views', async ({
   await page.setViewportSize({ width: 800, height: 700 });
   await page.screenshot({ path: testInfo.outputPath('title-narrow.png') });
   await page.setViewportSize({ width: 1280, height: 720 });
-  await page.locator('#start-button').click();
+  await startFixedWorld(page);
   await page.waitForTimeout(900);
   await page.screenshot({ path: testInfo.outputPath('spawn.png') });
 

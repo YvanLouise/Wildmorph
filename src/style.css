@@ -61,15 +61,16 @@ button:focus-visible {
 }
 
 #game-root,
-#ui-root,
-#game-root canvas {
+#ui-root {
   position: absolute;
   inset: 0;
-  width: 100% !important;
-  height: 100% !important;
+  width: 100%;
+  height: 100%;
 }
 
 #game-root canvas {
+  position: absolute;
+  inset: 0;
   display: block;
 }
 
@@ -304,6 +305,150 @@ h2 {
   color: var(--ink-muted);
 }
 
+.world-select-screen {
+  z-index: 35;
+}
+
+.world-select-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(7, 14, 11, 0.78);
+  backdrop-filter: blur(7px) saturate(0.72);
+}
+
+.world-select-card {
+  position: relative;
+  z-index: 1;
+  width: min(840px, calc(100% - 48px));
+  max-height: calc(100% - 42px);
+  overflow: auto;
+  padding: 30px 34px 34px;
+  border: 1px solid rgba(222, 197, 126, 0.34);
+  background:
+    linear-gradient(145deg, rgba(37, 57, 45, 0.98), rgba(17, 30, 24, 0.98)),
+    var(--panel);
+  box-shadow: 0 28px 90px rgba(0, 0, 0, 0.58);
+  color: var(--ink);
+  text-align: center;
+}
+
+.world-select-card h2 {
+  margin: 0 0 22px;
+  font-size: clamp(30px, 4vw, 48px);
+}
+
+.world-select-close {
+  position: absolute;
+  top: 12px;
+  right: 14px;
+  width: 42px;
+  height: 42px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--ink-muted);
+  cursor: pointer;
+  font-size: 28px;
+}
+
+.world-select-close:hover,
+.world-select-close:focus-visible {
+  border-color: var(--line);
+  color: var(--ink);
+}
+
+.world-mode-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.world-mode-card {
+  display: flex;
+  min-height: 270px;
+  flex-direction: column;
+  align-items: stretch;
+  padding: 24px;
+  border: 1px solid rgba(235, 214, 151, 0.2);
+  background: rgba(10, 24, 18, 0.42);
+  text-align: left;
+}
+
+.world-mode-card--seeded {
+  background: linear-gradient(145deg, rgba(52, 77, 59, 0.52), rgba(13, 31, 24, 0.52));
+}
+
+.world-mode-card h3 {
+  margin: 7px 0 8px;
+  color: #f2dfaa;
+  font-size: 25px;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+}
+
+.world-mode-card p {
+  margin: 0 0 16px;
+  color: var(--ink-muted);
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.world-mode-card > .game-button:last-child {
+  width: 100%;
+  margin-top: auto;
+}
+
+.world-mode-tag {
+  color: #b7c995;
+  font-size: 11px;
+  letter-spacing: 0.18em;
+}
+
+.seed-field {
+  display: grid;
+  gap: 6px;
+  margin: 2px 0 0;
+  color: #c6ccb8;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+}
+
+.seed-field input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border: 1px solid rgba(231, 210, 148, 0.32);
+  outline: none;
+  background: rgba(5, 15, 11, 0.56);
+  color: #fff0bf;
+  font: 600 15px/1.2 ui-monospace, "SFMono-Regular", Consolas, monospace;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.seed-field input:focus {
+  border-color: rgba(242, 207, 114, 0.78);
+  box-shadow: 0 0 0 2px rgba(242, 207, 114, 0.1);
+}
+
+.seed-error {
+  min-height: 18px;
+  margin: 5px 0 !important;
+  color: #efb19c !important;
+  font-size: 11px !important;
+}
+
+.seed-actions {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.seed-actions .game-button {
+  min-width: 0;
+  flex: 1;
+  padding-inline: 12px;
+}
+
 .loading-label {
   position: absolute;
   z-index: 3;
@@ -391,6 +536,114 @@ h2 {
   letter-spacing: 0.18em;
 }
 
+.survival-hud {
+  position: absolute;
+  top: 4.2%;
+  right: 3.2%;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  padding: 7px;
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(24, 37, 30, 0.86), rgba(13, 24, 19, 0.76));
+  box-shadow: 0 9px 28px rgba(0, 0, 0, 0.24);
+  backdrop-filter: blur(7px);
+}
+
+.survival-item {
+  --survival-accent: #d9b561;
+  width: clamp(58px, 5.8vw, 76px);
+  min-width: 0;
+  padding: 5px 6px 6px;
+  border-radius: 9px;
+  background: rgba(239, 240, 219, 0.035);
+  transition: background-color 180ms ease;
+}
+
+.survival-item--health {
+  --survival-accent: #ef5548;
+}
+
+.survival-item--food {
+  --survival-accent: #e89b3f;
+}
+
+.survival-item--water {
+  --survival-accent: #55b8eb;
+}
+
+.survival-item--stamina {
+  --survival-accent: #e9ca4f;
+}
+
+.survival-item-main {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.survival-icon {
+  flex: 0 0 auto;
+  width: clamp(28px, 2.8vw, 38px);
+  height: clamp(28px, 2.8vw, 38px);
+  object-fit: contain;
+  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.28));
+  -webkit-user-drag: none;
+}
+
+.survival-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-end;
+  margin-left: auto;
+  font-family: system-ui, sans-serif;
+  line-height: 1;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.7);
+}
+
+.survival-label {
+  color: var(--ink-muted);
+  font-size: clamp(8px, 0.7vw, 10px);
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+}
+
+.survival-value {
+  margin-top: 4px;
+  color: var(--ink);
+  font-size: clamp(10px, 0.95vw, 13px);
+  font-variant-numeric: tabular-nums;
+}
+
+.survival-meter {
+  --survival-value: 100%;
+  height: 4px;
+  margin-top: 5px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(2, 8, 5, 0.62);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.36);
+}
+
+.survival-meter-fill {
+  display: block;
+  width: var(--survival-value);
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--survival-accent) 74%, #5c3d23), var(--survival-accent));
+  box-shadow: 0 0 7px color-mix(in srgb, var(--survival-accent) 58%, transparent);
+  transition: width 220ms ease;
+}
+
+.survival-item.is-warning {
+  background: color-mix(in srgb, var(--survival-accent) 6%, rgba(25, 29, 23, 0.76));
+}
+
+.survival-item.is-low {
+  background: color-mix(in srgb, var(--survival-accent) 10%, rgba(25, 29, 23, 0.84));
+}
+
 .controls-hint {
   position: absolute;
   right: 3.2%;
@@ -458,6 +711,40 @@ kbd {
   box-shadow: 0 22px 70px rgba(0, 0, 0, 0.44);
 }
 
+.pause-world-panel {
+  display: none;
+  width: min(310px, 100%);
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(235, 214, 151, 0.2);
+  text-align: left;
+}
+
+.pause-world-panel.is-visible {
+  display: block;
+}
+
+.pause-world-panel > p:first-child {
+  margin: 0 0 7px;
+  color: var(--ink-muted);
+  font-size: 11px;
+  letter-spacing: 0.16em;
+}
+
+#pause-world-seed {
+  display: block;
+  margin-bottom: 10px;
+  color: #f2dc9e;
+  font: 600 16px/1.2 ui-monospace, "SFMono-Regular", Consolas, monospace;
+  letter-spacing: 0.1em;
+}
+
+.pause-world-panel .game-button {
+  min-width: 0;
+  width: 100%;
+  padding: 9px 12px;
+}
+
 .pause-actions {
   display: flex;
   flex-direction: column;
@@ -490,6 +777,20 @@ kbd {
 
 .debug-panel.is-visible {
   display: flex;
+}
+
+.debug-toggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 11px;
+  pointer-events: auto;
+}
+
+.debug-toggles label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
 }
 
 .touch-controls {
@@ -837,6 +1138,39 @@ html[data-input-mode="touch"] #game-stage {
   font-size: clamp(8px, 2.1vh, 11px);
 }
 
+#ui-root[data-input-mode="touch"] .survival-hud {
+  top: calc(env(safe-area-inset-top, 0px) + 12px);
+  right: calc(env(safe-area-inset-right, 0px) + 82px);
+  gap: 4px;
+  padding: 5px;
+  border-radius: 11px;
+}
+
+#ui-root[data-input-mode="touch"] .survival-item {
+  width: clamp(48px, 12vw, 60px);
+  padding: 3px 4px 4px;
+  border-radius: 7px;
+}
+
+#ui-root[data-input-mode="touch"] .survival-icon {
+  width: clamp(24px, 7vh, 31px);
+  height: clamp(24px, 7vh, 31px);
+}
+
+#ui-root[data-input-mode="touch"] .survival-label {
+  font-size: clamp(7px, 1.9vh, 9px);
+}
+
+#ui-root[data-input-mode="touch"] .survival-value {
+  margin-top: 3px;
+  font-size: clamp(9px, 2.4vh, 11px);
+}
+
+#ui-root[data-input-mode="touch"] .survival-meter {
+  height: 3px;
+  margin-top: 3px;
+}
+
 #ui-root[data-input-mode="touch"] .controls-hint {
   right: calc(env(safe-area-inset-right, 0px) + 14px);
   bottom: calc(env(safe-area-inset-bottom, 0px) + 98px);
@@ -858,6 +1192,38 @@ html[data-input-mode="touch"] #game-stage {
   padding: 18px 28px 16px;
 }
 
+#ui-root[data-input-mode="touch"] .world-select-card {
+  width: min(760px, calc(100% - 28px));
+  max-height: calc(100% - 20px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+  padding: 16px 22px 20px;
+}
+
+#ui-root[data-input-mode="touch"] .world-select-card h2 {
+  margin-bottom: 12px;
+  font-size: 28px;
+}
+
+#ui-root[data-input-mode="touch"] .world-mode-card {
+  min-height: 0;
+  padding: 15px 18px;
+}
+
+#ui-root[data-input-mode="touch"] .world-mode-card p {
+  margin-bottom: 9px;
+  line-height: 1.4;
+}
+
+#ui-root[data-input-mode="touch"] .pause-world-panel {
+  margin-top: 10px;
+  padding-top: 9px;
+}
+
+#ui-root[data-input-mode="touch"] .pause-world-panel .seed-field,
+#ui-root[data-input-mode="touch"] .pause-world-panel .seed-error,
+#ui-root[data-input-mode="touch"] #apply-pause-seed-button {
+  display: none;
+}
+
 #ui-root[data-input-mode="touch"] .pause-actions {
   gap: 7px;
   margin-top: 16px;
@@ -874,6 +1240,35 @@ html[data-input-mode="touch"] #game-stage {
 }
 
 @media (max-height: 430px) {
+  .world-select-card .eyebrow,
+  .world-select-card > h2 {
+    display: none;
+  }
+
+  .world-mode-grid {
+    gap: 10px;
+  }
+
+  .world-mode-card h3 {
+    margin-block: 3px;
+    font-size: 20px;
+  }
+
+  .world-mode-card p {
+    display: none;
+  }
+
+  .seed-field input {
+    padding: 7px 9px;
+  }
+  #ui-root[data-input-mode="touch"] .survival-hud {
+    top: calc(env(safe-area-inset-top, 0px) + 8px);
+  }
+
+  #ui-root[data-input-mode="touch"] .survival-item {
+    width: clamp(46px, 11vw, 56px);
+  }
+
   #ui-root[data-input-mode="touch"] .pause-card h2 {
     font-size: 30px;
   }
